@@ -1,9 +1,9 @@
 {
-  "id": "doc-to-markdown",
-  "name": "Doc to Markdown",
+  "id": "convert-to-markdown",
+  "name": "Convert to Markdown",
   "version": "0.1.0",
   "minAppVersion": "1.7.2",
-  "description": "Convert PDF, Word, PowerPoint, Excel and image files into clean Markdown notes, with their images. Reads each format's own structure directly — no LLM, no conversion service, nothing uploaded. Image files use local OCR, which downloads its engine once.",
+  "description": "Convert PDF, Word (.docx), PowerPoint (.pptx), Excel (.xlsx) and images to Markdown — headings, tables, lists and embedded images intact. Parsed natively: no Python, no pip, no cloud service, nothing uploaded. Local OCR reads text in images.",
   "author": "notenerd",
   "authorUrl": "",
   "fundingUrl": "",

@@ -1,7 +1,7 @@
 import { App, PluginSettingTab, Setting, normalizePath } from "obsidian";
-import type DocToMarkdownPlugin from "./main";
+import type ConvertToMarkdownPlugin from "./main";
 
-export interface DocToMarkdownSettings {
+export interface ConvertToMarkdownSettings {
   /** Where the converted note is written. */
   outputLocation: "sameFolder" | "folder";
   /** Vault-relative folder used when outputLocation is "folder". */
@@ -18,7 +18,7 @@ export interface DocToMarkdownSettings {
   openAfterConvert: boolean;
 }
 
-export const DEFAULT_SETTINGS: DocToMarkdownSettings = {
+export const DEFAULT_SETTINGS: ConvertToMarkdownSettings = {
   outputLocation: "sameFolder",
   outputFolder: "Converted",
   extractImages: true,
@@ -28,8 +28,8 @@ export const DEFAULT_SETTINGS: DocToMarkdownSettings = {
   openAfterConvert: true,
 };
 
-export class DocToMarkdownSettingTab extends PluginSettingTab {
-  constructor(app: App, private readonly plugin: DocToMarkdownPlugin) {
+export class ConvertToMarkdownSettingTab extends PluginSettingTab {
+  constructor(app: App, private readonly plugin: ConvertToMarkdownPlugin) {
     super(app, plugin);
   }
 

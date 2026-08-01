@@ -1,4 +1,4 @@
-# Doc to Markdown
+# Convert to Markdown
 
 Converts PDF, Word, PowerPoint, Excel and image files in your vault into
 Markdown notes, images and all.
@@ -22,8 +22,8 @@ use it. Details under [OCR](#ocr).
 Not in the community plugin store yet, so install it by hand:
 
 1. Copy `main.js` and `manifest.json` into
-   `<vault>/.obsidian/plugins/doc-to-markdown/`
-2. Settings → Community plugins → enable **Doc to Markdown**
+   `<vault>/.obsidian/plugins/convert-to-markdown/`
+2. Settings → Community plugins → enable **Convert to Markdown**
 
 Nothing else. No runtime to install, no binary to put on PATH, no account.
 Desktop only — it uses Node's `zlib`, which Obsidian mobile doesn't have.
@@ -35,7 +35,7 @@ immediately and offline.
 ## Usage
 
 - Right-click a supported file in the file explorer → **Convert to Markdown**
-- Or run **Doc to Markdown: Convert a file to Markdown** from the command palette
+- Or run **Convert to Markdown: Convert a file** from the command palette
 
 The note is written next to the original (configurable), never overwriting an
 existing note. Anything the converter dropped — images, hidden sheets, pages

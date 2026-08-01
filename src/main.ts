@@ -2,18 +2,18 @@ import { FuzzySuggestModal, Notice, Plugin, TAbstractFile, TFile, TFolder, norma
 import { AssetSink, createAssetSink, NO_ASSETS } from "./assets";
 import { extractorFor, isSupported, SUPPORTED_EXTENSIONS } from "./extractors";
 import { CDN_OCR, CORE_FILE_PREFERENCE, LANGUAGE_FILE_NAMES, OcrProvider } from "./ocr";
-import { DEFAULT_SETTINGS, DocToMarkdownSettings, DocToMarkdownSettingTab } from "./settings";
+import { DEFAULT_SETTINGS, ConvertToMarkdownSettings, ConvertToMarkdownSettingTab } from "./settings";
 
-export default class DocToMarkdownPlugin extends Plugin {
-  settings: DocToMarkdownSettings = { ...DEFAULT_SETTINGS };
+export default class ConvertToMarkdownPlugin extends Plugin {
+  settings: ConvertToMarkdownSettings = { ...DEFAULT_SETTINGS };
 
   async onload(): Promise<void> {
     await this.loadSettings();
-    this.addSettingTab(new DocToMarkdownSettingTab(this.app, this));
+    this.addSettingTab(new ConvertToMarkdownSettingTab(this.app, this));
 
     this.addCommand({
       id: "convert-file",
-      name: "Convert a file to Markdown",
+      name: "Convert a file",
       callback: () => {
         const files = this.app.vault.getFiles().filter((file) => isSupported(file.extension));
         if (files.length === 0) {
@@ -40,7 +40,7 @@ export default class DocToMarkdownPlugin extends Plugin {
   async convert(file: TFile): Promise<void> {
     const extract = extractorFor(file.extension);
     if (!extract) {
-      new Notice(`Doc to Markdown can't convert .${file.extension} files.`);
+      new Notice(`Can't convert .${file.extension} files.`);
       return;
     }
 
@@ -73,7 +73,7 @@ export default class DocToMarkdownPlugin extends Plugin {
       notice.hide();
       const message = error instanceof Error ? error.message : String(error);
       new Notice(`Couldn't convert ${file.name}: ${message}`, 10000);
-      console.error(`Doc to Markdown: failed to convert ${file.path}`, error);
+      console.error(`Convert to Markdown: failed to convert ${file.path}`, error);
     }
   }
 
@@ -221,7 +221,7 @@ function progressReporter(notice: Notice, fileName: string): OcrProvider["report
 }
 
 class FilePickerModal extends FuzzySuggestModal<TFile> {
-  constructor(private readonly plugin: DocToMarkdownPlugin, private readonly files: TFile[]) {
+  constructor(private readonly plugin: ConvertToMarkdownPlugin, private readonly files: TFile[]) {
     super(plugin.app);
     this.setPlaceholder("Pick a document to convert to Markdown");
   }
