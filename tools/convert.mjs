@@ -55,7 +55,7 @@ await esbuild.build({
   logLevel: "warning",
 });
 
-const { extractorFor, createAssetSink } = await import(
+const { extractorFor, createAssetSink, CDN_OCR } = await import(
   pathToFileURL(join(process.cwd(), bundlePath)).href
 );
 
@@ -71,11 +71,24 @@ for (const file of files) {
   const assetDir = join(outDir, `${name} attachments`);
 
   try {
+    // Mirrors the plugin's progress reporting so the callback shape and the
+    // stage names it emits stay verifiable outside Obsidian.
+    let lastStage = "";
+    const ocr = {
+      ...CDN_OCR,
+      report: (status, progress) => {
+        const line = `${status} — ${Math.round(progress * 100)}%`;
+        if (line === lastStage) return;
+        lastStage = line;
+        if (process.env.OCR_PROGRESS) console.error(`      ${line}`);
+      },
+    };
+
     const result = await extract(readFileSync(file), createAssetSink(async (data, assetName) => {
       mkdirSync(assetDir, { recursive: true });
       writeFileSync(join(assetDir, assetName), data);
       return `![[${name} attachments/${assetName}]]`;
-    }));
+    }), ocr);
     const target = join(outDir, `${name}.md`);
     writeFileSync(target, result.markdown + "\n");
     console.error(`OK    ${file} → ${target} (${result.markdown.length} chars)`);

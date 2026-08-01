@@ -71,6 +71,10 @@ That traffic is one-way: it fetches the engine, it never sends the image.
 After the first run OCR works with the network off, and nothing else in the
 plugin touches the network at all.
 
+The download happens inside the first conversion, so that one takes noticeably
+longer than the rest. The notice reports what it's doing while it waits
+(`loading language traineddata — 61%`) rather than sitting on "Converting…".
+
 ### Locked-down machines
 
 If that CDN is blocked — common on corporate networks — put the two files in a
@@ -92,6 +96,21 @@ marks, JPEG artefacts — are dropped rather than written into the note as
 gibberish, and counted in the conversion notes. Large display type reversed out
 of a coloured background is the common thing OCR misses; check the note against
 the image when the confidence warning appears.
+
+## Installing
+
+Not in the community plugin store yet, so install it by hand:
+
+1. Copy `main.js` and `manifest.json` into
+   `<vault>/.obsidian/plugins/doc-to-markdown/`
+2. Settings → Community plugins → enable **Doc to Markdown**
+
+Nothing else. No runtime to install, no binary to put on PATH, no account.
+Desktop only — it uses Node's `zlib`, which Obsidian mobile doesn't have.
+
+The first time you convert an *image*, there's a one-off engine download (see
+[OCR](#ocr)); the notice shows its progress. Everything else works
+immediately and offline.
 
 ## Usage
 
@@ -133,7 +152,8 @@ OUT_DIR=/tmp/out node tools/convert.mjs ~/Downloads/deck.pptx ~/Downloads/report
 ```
 
 It shims the two DOM globals Obsidian gets from Electron and otherwise runs
-the real extractor code.
+the real extractor code. `OCR_PROGRESS=1` prints the OCR stage reporting that
+the plugin puts in its notice.
 
 ### Note on dependencies
 

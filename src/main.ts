@@ -54,7 +54,11 @@ export default class DocToMarkdownPlugin extends Plugin {
       const notePath = this.availablePath(folder, file.basename);
       const noteBasename = notePath.slice(notePath.lastIndexOf("/") + 1, -".md".length);
 
-      const result = await extract(data, this.assetSink(folder, noteBasename), this.ocrProvider());
+      const result = await extract(
+        data,
+        this.assetSink(folder, noteBasename),
+        this.ocrProvider(progressReporter(notice, file.name))
+      );
       const note = await this.app.vault.create(
         notePath,
         this.composeNote(file, result.markdown, result.warnings)
@@ -103,11 +107,12 @@ export default class DocToMarkdownPlugin extends Plugin {
    * Resolved lazily — only the image extractor ever asks — so converting a
    * Word document never reads 9 MB of recogniser off disk.
    */
-  private ocrProvider(): OcrProvider {
+  private ocrProvider(report: OcrProvider["report"]): OcrProvider {
     const folder = this.settings.ocrDataFolder;
-    if (!folder) return CDN_OCR;
+    if (!folder) return { ...CDN_OCR, report };
 
     return {
+      report,
       resolve: async () => {
         const { adapter } = this.app.vault;
         const listing = await adapter.list(folder).catch(() => {
@@ -191,6 +196,28 @@ export default class DocToMarkdownPlugin extends Plugin {
   async saveSettings(): Promise<void> {
     await this.saveData(this.settings);
   }
+}
+
+/**
+ * Feeds OCR progress into the notice that's already on screen.
+ *
+ * Tesseract's own wording ("loading language traineddata") is what makes the
+ * first conversion legible — it's the only thing that explains why an
+ * otherwise offline plugin is sitting there for half a minute.
+ *
+ * The logger fires far more often than the text changes, so identical
+ * messages are dropped rather than repainted.
+ */
+function progressReporter(notice: Notice, fileName: string): OcrProvider["report"] {
+  let last = "";
+
+  return (status, progress) => {
+    const percent = Number.isFinite(progress) ? Math.round(progress * 100) : 0;
+    const message = `Converting ${fileName}\n${status} — ${percent}%`;
+    if (message === last) return;
+    last = message;
+    notice.setMessage(message);
+  };
 }
 
 class FilePickerModal extends FuzzySuggestModal<TFile> {

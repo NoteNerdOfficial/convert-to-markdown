@@ -18,6 +18,13 @@ export interface OcrEngineFiles {
 export interface OcrProvider {
   /** Locally supplied engine files, or null to let Tesseract use its CDN. */
   resolve(): Promise<OcrEngineFiles | null>;
+  /**
+   * Called as OCR proceeds, with Tesseract's own stage name and a 0–1
+   * fraction. Worth surfacing because the very first conversion spends most
+   * of its time downloading ~9 MB of engine, which otherwise looks like the
+   * plugin has hung.
+   */
+  report?(status: string, progress: number): void;
 }
 
 /** The default: Tesseract downloads its own engine and caches it. */

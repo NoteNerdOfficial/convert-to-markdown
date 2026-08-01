@@ -37,7 +37,7 @@ export async function extractImage(
   if (!format) throw new Error("not a readable image (unrecognised file signature)");
 
   const embed = await assets.save(data, format);
-  const { paragraphs, confidence, discarded } = await recognize(data, await ocr.resolve());
+  const { paragraphs, confidence, discarded } = await recognize(data, await ocr.resolve(), ocr);
 
   const warnings: string[] = [];
   if (paragraphs.length === 0) {
@@ -72,9 +72,14 @@ const MIN_PARAGRAPH_CONFIDENCE = 60;
 
 async function recognize(
   data: Buffer,
-  engine: OcrEngineFiles | null
+  engine: OcrEngineFiles | null,
+  ocr: OcrProvider
 ): Promise<{ paragraphs: string[]; confidence: number; discarded: number }> {
-  const worker = await createWorker("eng", undefined, { ...workerOptions(), ...engineOptions(engine) });
+  const worker = await createWorker("eng", undefined, {
+    ...workerOptions(),
+    ...engineOptions(engine),
+    logger: ({ status, progress }: { status: string; progress: number }) => ocr.report?.(status, progress),
+  });
   try {
     // Tesseract's own default is to treat the image as one uniform block of
     // text, which flattens a page's headings, columns and captions into a
