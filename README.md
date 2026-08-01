@@ -202,3 +202,7 @@ release can only ship `main.js`, `manifest.json` and `styles.css`, so both
 workers are inlined at build time and handed to the library as a Blob URL.
 Tesseract's WASM engine and language data still come from a CDN on first use —
 they're too large to inline, and the language data has to be fetched somehow.
+
+## License
+
+MIT
