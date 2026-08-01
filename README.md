@@ -206,3 +206,26 @@ they're too large to inline, and the language data has to be fetched somehow.
 ## License
 
 MIT
+
+## Third-party licenses
+
+The released `main.js` is a bundle, so it carries these with it:
+
+| Bundled | License |
+| --- | --- |
+| [pdfjs-dist](https://github.com/mozilla/pdf.js) — PDF text and image extraction | Apache-2.0 |
+| [tesseract.js](https://github.com/naptha/tesseract.js) — OCR API and worker | Apache-2.0 |
+| [idb-keyval](https://github.com/jakearchibald/idb-keyval) — via tesseract.js, caches the OCR model | Apache-2.0 |
+| [wasm-feature-detect](https://github.com/GoogleChromeLabs/wasm-feature-detect) — via tesseract.js, picks the SIMD build | Apache-2.0 |
+
+Fetched on the first image conversion rather than redistributed here:
+
+| Downloaded at runtime | License |
+| --- | --- |
+| [tesseract.js-core](https://github.com/naptha/tesseract.js-core) — the WASM recogniser | Apache-2.0 |
+| [tessdata](https://github.com/tesseract-ocr/tessdata_best) `eng.traineddata` — the English model | Apache-2.0 |
+
+Apache-2.0 is compatible with this plugin's MIT license, and none of these ship
+a NOTICE file that would require further attribution. Nothing else is bundled:
+the zip reader and the PNG encoder are hand-rolled (`src/zip.ts`, `src/png.ts`)
+precisely so there is nothing more to carry.
