@@ -1,5 +1,15 @@
 import { ZipArchive } from "../zip";
-import { children, descendants, parseXml, readRelationships, Relationship, resolvePartPath } from "../ooxml";
+import {
+  children,
+  descendants,
+  imageRelationshipIds,
+  parseXml,
+  readRelationships,
+  Relationship,
+  resolvePartPath,
+  saveImages,
+} from "../ooxml";
+import { AssetSink, droppedImagesWarning } from "../assets";
 import { bullet, escapeInline, heading, joinBlocks, squashSpaces, table } from "../markdown";
 import { ExtractResult } from "./types";
 
@@ -17,7 +27,7 @@ const NOTES_REL_TYPE = "http://schemas.openxmlformats.org/officeDocument/2006/re
  * title placeholder becomes the slide heading, body placeholders become
  * bullets at their own indent level — instead of guessing from geometry.
  */
-export async function extractPptx(data: Buffer): Promise<ExtractResult> {
+export async function extractPptx(data: Buffer, assets: AssetSink): Promise<ExtractResult> {
   const zip = ZipArchive.open(data);
   if (!zip.has(PRESENTATION_PART)) throw new Error("not a PowerPoint presentation (no ppt/presentation.xml)");
 
@@ -27,16 +37,12 @@ export async function extractPptx(data: Buffer): Promise<ExtractResult> {
   const context: PptxContext = { droppedImages: 0, droppedCharts: 0 };
   const lines: string[] = [];
 
-  slidePaths.forEach((slidePath, index) => {
-    lines.push(...renderSlide(zip, slidePath, index + 1, context));
-  });
+  for (const [index, slidePath] of slidePaths.entries()) {
+    lines.push(...(await renderSlide(zip, slidePath, index + 1, context, assets)));
+  }
 
   const warnings: string[] = [];
-  if (context.droppedImages > 0) {
-    warnings.push(
-      `${context.droppedImages} image${context.droppedImages === 1 ? "" : "s"} were not extracted (text only).`
-    );
-  }
+  if (context.droppedImages > 0) warnings.push(droppedImagesWarning(context.droppedImages, assets.enabled));
   if (context.droppedCharts > 0) {
     warnings.push(
       `${context.droppedCharts} chart${context.droppedCharts === 1 ? "" : "s"} or embedded object${context.droppedCharts === 1 ? " was" : "s were"} skipped.`
@@ -74,7 +80,13 @@ function readSlideOrder(zip: ZipArchive): string[] {
   return paths;
 }
 
-function renderSlide(zip: ZipArchive, slidePath: string, slideNumber: number, context: PptxContext): string[] {
+async function renderSlide(
+  zip: ZipArchive,
+  slidePath: string,
+  slideNumber: number,
+  context: PptxContext,
+  assets: AssetSink
+): Promise<string[]> {
   const xml = zip.text(slidePath);
   if (!xml) return [];
 
@@ -82,12 +94,17 @@ function renderSlide(zip: ZipArchive, slidePath: string, slideNumber: number, co
   if (!shapeTree) return [];
 
   const rels = readRelationships(zip, slidePath);
+  const images = await saveImages(zip, slidePath, rels, imageRelationshipIds(shapeTree), assets);
   const blocks: string[] = [];
   let title: string | null = null;
 
   for (const shape of walkShapes(shapeTree)) {
     if (shape.tagName === "p:pic") {
-      context.droppedImages++;
+      const embed = imageRelationshipIds(shape)
+        .map((id) => images.get(id))
+        .find((found) => found !== undefined);
+      if (embed) blocks.push("", embed, "");
+      else context.droppedImages++;
       continue;
     }
     if (shape.tagName === "p:graphicFrame") {

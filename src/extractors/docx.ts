@@ -1,5 +1,15 @@
 import { ZipArchive } from "../zip";
-import { children, descendants, firstDescendant, parseXml, readRelationships, Relationship } from "../ooxml";
+import {
+  children,
+  descendants,
+  firstDescendant,
+  imageRelationshipIds,
+  parseXml,
+  readRelationships,
+  Relationship,
+  saveImages,
+} from "../ooxml";
+import { AssetSink, droppedImagesWarning } from "../assets";
 import { bullet, escapeInline, heading, joinBlocks, numbered, squashSpaces, table } from "../markdown";
 import { ExtractResult } from "./types";
 
@@ -14,7 +24,7 @@ const NUMBERING_PART = "word/numbering.xml";
  * already carries its own semantics (heading level, list level) in `w:pPr`.
  * The job is mostly reading those out rather than inferring anything.
  */
-export async function extractDocx(data: Buffer): Promise<ExtractResult> {
+export async function extractDocx(data: Buffer, assets: AssetSink): Promise<ExtractResult> {
   const zip = ZipArchive.open(data);
   const documentXml = zip.text(DOCUMENT_PART);
   if (!documentXml) throw new Error("not a Word document (no word/document.xml)");
@@ -23,9 +33,11 @@ export async function extractDocx(data: Buffer): Promise<ExtractResult> {
   const body = doc.getElementsByTagName("w:body").item(0);
   if (!body) throw new Error("Word document has no body");
 
+  const rels = readRelationships(zip, DOCUMENT_PART);
   const context: DocxContext = {
-    rels: readRelationships(zip, DOCUMENT_PART),
+    rels,
     numbering: readNumbering(zip),
+    images: await saveImages(zip, DOCUMENT_PART, rels, imageRelationshipIds(body), assets),
     droppedImages: 0,
   };
 
@@ -39,13 +51,7 @@ export async function extractDocx(data: Buffer): Promise<ExtractResult> {
   }
 
   const warnings: string[] = [];
-  if (context.droppedImages > 0) {
-    warnings.push(
-      context.droppedImages === 1
-        ? "1 embedded image was not extracted (text only)."
-        : `${context.droppedImages} embedded images were not extracted (text only).`
-    );
-  }
+  if (context.droppedImages > 0) warnings.push(droppedImagesWarning(context.droppedImages, assets.enabled));
 
   return { markdown: joinBlocks(lines), warnings };
 }
@@ -53,6 +59,8 @@ export async function extractDocx(data: Buffer): Promise<ExtractResult> {
 interface DocxContext {
   rels: Map<string, Relationship>;
   numbering: NumberingIndex;
+  /** Markdown embed per image relationship id, for images that were saved. */
+  images: Map<string, string>;
   droppedImages: number;
 }
 
@@ -144,6 +152,9 @@ function renderRuns(container: Element, context: DocxContext): string {
 function renderRun(run: Element, context: DocxContext): string {
   const properties = children(run, "w:rPr")[0] ?? null;
   let text = "";
+  // Embeds are already Markdown and must survive escaping, so they're kept
+  // apart from the run's text and appended after it.
+  let embeds = "";
 
   for (const node of Array.from(run.children)) {
     switch (node.tagName) {
@@ -157,13 +168,18 @@ function renderRun(run: Element, context: DocxContext): string {
         text += "\n";
         break;
       case "w:drawing":
-      case "w:pict":
-        context.droppedImages++;
+      case "w:pict": {
+        // Word anchors an image inside a run, almost always in a paragraph of
+        // its own — so emitting it here puts it where it sat in the document.
+        const embed = imageEmbedIn(node, context);
+        if (embed) embeds += embed;
+        else context.droppedImages++;
         break;
+      }
     }
   }
 
-  if (text === "") return "";
+  if (text === "") return embeds;
 
   // Escape before wrapping in emphasis markers, so the markers survive.
   text = escapeInline(text);
@@ -171,12 +187,21 @@ function renderRun(run: Element, context: DocxContext): string {
   // Leading/trailing spaces have to sit outside the emphasis markers —
   // `** bold **` doesn't render as bold in any Markdown flavour.
   const [, leading, core, trailing] = /^(\s*)([\s\S]*?)(\s*)$/.exec(text) as RegExpExecArray;
-  if (core === "") return text;
+  if (core === "") return text + embeds;
 
   let wrapped = core;
   if (isEnabled(properties, "w:i")) wrapped = `*${wrapped}*`;
   if (isEnabled(properties, "w:b")) wrapped = `**${wrapped}**`;
-  return `${leading}${wrapped}${trailing}`;
+  return `${leading}${wrapped}${trailing}${embeds}`;
+}
+
+/** The embed for the picture inside a `w:drawing`/`w:pict`, if it was saved. */
+function imageEmbedIn(node: Element, context: DocxContext): string | null {
+  for (const id of imageRelationshipIds(node)) {
+    const embed = context.images.get(id);
+    if (embed) return embed;
+  }
+  return null;
 }
 
 /**

@@ -1,6 +1,8 @@
 import * as pdfjsLib from "pdfjs-dist";
-import type { TextItem } from "pdfjs-dist/types/src/display/api";
+import type { PDFPageProxy, TextItem } from "pdfjs-dist/types/src/display/api";
+import { AssetSink } from "../assets";
 import { bullet, escapeInline, heading, joinBlocks, squashSpaces } from "../markdown";
+import { encodePng } from "../png";
 import { ExtractResult } from "./types";
 
 // pdfjs-dist's worker script, inlined at build time by esbuild (see
@@ -35,20 +37,34 @@ function ensureWorker(): void {
  * images has no text layer at all, and that case is reported rather than
  * silently returning an empty note.
  */
-export async function extractPdf(data: Buffer): Promise<ExtractResult> {
+export async function extractPdf(data: Buffer, assets: AssetSink): Promise<ExtractResult> {
   ensureWorker();
 
-  // pdf.js takes ownership of the buffer it's handed, so pass a copy — the
-  // caller's Buffer would otherwise come back detached.
-  const document = await pdfjsLib.getDocument({ data: new Uint8Array(data) }).promise;
+  const document = await pdfjsLib.getDocument({
+    // pdf.js takes ownership of the buffer it's handed, so pass a copy — the
+    // caller's Buffer would otherwise come back detached.
+    data: new Uint8Array(data),
+    // Forces decoded images to arrive as raw pixel buffers rather than
+    // ImageBitmaps. Obsidian's Electron supports OffscreenCanvas and Node
+    // doesn't, so leaving this on would give the two environments different
+    // image objects — and make the extractor untestable outside Obsidian.
+    isOffscreenCanvasSupported: false,
+  }).promise;
 
   try {
     const pages: Line[][] = [];
+    const pageImages: string[][] = [];
+    let skippedImages = 0;
+
     for (let pageNumber = 1; pageNumber <= document.numPages; pageNumber++) {
       const page = await document.getPage(pageNumber);
       try {
         const content = await page.getTextContent();
         pages.push(buildLines(content.items.filter(isTextItem)));
+
+        const extracted = await extractPageImages(page, assets);
+        pageImages.push(extracted.embeds);
+        skippedImages += extracted.skipped;
       } finally {
         page.cleanup();
       }
@@ -66,25 +82,137 @@ export async function extractPdf(data: Buffer): Promise<ExtractResult> {
     const isRunningHeader = detectRunningHeaders(pages);
 
     const lines: string[] = [];
-    for (const pageLines of pages) {
+    pages.forEach((pageLines, index) => {
       lines.push(...renderPage(pageLines.filter((line) => !isRunningHeader(line)), bodySize, bodyWidth));
-    }
+      // A PDF's drawing operations don't interleave with its text in reading
+      // order, so there's no honest position for a figure within the page —
+      // they go after the page's text.
+      for (const embed of pageImages[index]) lines.push("", embed, "");
+    });
 
-    return { markdown: joinBlocks(lines), warnings: pdfWarnings(document.numPages, pages) };
+    return {
+      markdown: joinBlocks(lines),
+      warnings: pdfWarnings(document.numPages, pages, skippedImages),
+    };
   } finally {
     await document.destroy();
   }
 }
 
-function pdfWarnings(pageCount: number, pages: Line[][]): string[] {
+function pdfWarnings(pageCount: number, pages: Line[][], skippedImages: number): string[] {
   const blankPages = pages.filter((page) => page.length === 0).length;
-  const warnings = ["Images, figures and vector graphics are not extracted."];
+  const warnings = ["Vector graphics and charts drawn as line art are not extracted."];
+  if (skippedImages > 0) {
+    warnings.push(
+      `${skippedImages} image${skippedImages === 1 ? "" : "s"} skipped (too small to be content, or an unsupported colour format).`
+    );
+  }
   if (blankPages > 0) {
     warnings.push(
       `${blankPages} of ${pageCount} pages had no text layer (likely scanned) and produced nothing.`
     );
   }
   return warnings;
+}
+
+/**
+ * Images below this on either side are rules, bullets, icons and spacer
+ * pixels — decoration that would bury the real figures.
+ */
+const MIN_IMAGE_SIDE = 64;
+
+/**
+ * Pulls the raster images off a page.
+ *
+ * A PDF references images as XObjects painted by the page's operator list, so
+ * the only way to find them is to walk that list and look each object up.
+ * pdf.js hands back a decoded pixel buffer rather than the original file, so
+ * they're re-encoded as PNG on the way out.
+ */
+async function extractPageImages(
+  page: PDFPageProxy,
+  assets: AssetSink
+): Promise<{ embeds: string[]; skipped: number }> {
+  const embeds: string[] = [];
+  let skipped = 0;
+
+  let operatorList;
+  try {
+    operatorList = await page.getOperatorList();
+  } catch {
+    // A page whose content stream fails to parse still had usable text; the
+    // images are the only casualty.
+    return { embeds, skipped };
+  }
+
+  const { OPS } = pdfjsLib;
+  const seen = new Set<string>();
+
+  for (let i = 0; i < operatorList.fnArray.length; i++) {
+    if (operatorList.fnArray[i] !== OPS.paintImageXObject) continue;
+
+    const objId = operatorList.argsArray[i]?.[0];
+    if (typeof objId !== "string" || seen.has(objId)) continue;
+    seen.add(objId);
+
+    // `g_`-prefixed ids are shared across pages and live on the document.
+    const store = objId.startsWith("g_") ? page.commonObjs : page.objs;
+    if (!store.has(objId)) continue;
+
+    const png = toPng(store.get(objId));
+    if (!png) {
+      skipped++;
+      continue;
+    }
+
+    const embed = await assets.save(png, "png");
+    if (embed) embeds.push(embed);
+    else skipped++;
+  }
+
+  return { embeds, skipped };
+}
+
+interface DecodedImage {
+  width: number;
+  height: number;
+  kind: number;
+  data: Uint8Array | null;
+}
+
+/**
+ * Converts a pdf.js image object to PNG bytes, or null if it isn't a picture
+ * worth keeping.
+ *
+ * Only the two truecolour kinds are handled. The third, 1-bit greyscale, is
+ * almost always a stencil mask — the shape used to clip another image or to
+ * paint a solid colour through — rather than an image anyone wants in a note.
+ */
+function toPng(image: DecodedImage | undefined): Buffer | null {
+  if (!image?.data) return null;
+  const { width, height, kind, data } = image;
+  if (width < MIN_IMAGE_SIDE || height < MIN_IMAGE_SIDE) return null;
+
+  const { RGB_24BPP, RGBA_32BPP } = pdfjsLib.ImageKind;
+
+  if (kind === RGBA_32BPP) {
+    if (data.length < width * height * 4) return null;
+    return encodePng(width, height, data);
+  }
+
+  if (kind === RGB_24BPP) {
+    if (data.length < width * height * 3) return null;
+    const rgba = new Uint8Array(width * height * 4);
+    for (let pixel = 0, source = 0, target = 0; pixel < width * height; pixel++) {
+      rgba[target++] = data[source++];
+      rgba[target++] = data[source++];
+      rgba[target++] = data[source++];
+      rgba[target++] = 0xff;
+    }
+    return encodePng(width, height, rgba);
+  }
+
+  return null;
 }
 
 /**

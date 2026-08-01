@@ -1,3 +1,4 @@
+import { AssetSink, imageExtensionOf } from "./assets";
 import { ZipArchive } from "./zip";
 
 /**
@@ -74,6 +75,62 @@ function relationshipPathFor(partPath: string): string {
   const dir = slash === -1 ? "" : partPath.slice(0, slash + 1);
   const name = slash === -1 ? partPath : partPath.slice(slash + 1);
   return `${dir}_rels/${name}.rels`;
+}
+
+/**
+ * Every relationship id an OOXML part uses to reference a picture, in
+ * document order. Both the DrawingML form (`a:blip`, used by every modern
+ * Office writer) and the legacy VML form (`v:imagedata`, still produced for
+ * pasted screenshots and older documents) point at the image the same way —
+ * through a relationship id.
+ */
+export function imageRelationshipIds(root: Element | Document): string[] {
+  const ids: string[] = [];
+  for (const blip of descendants(root, "a:blip")) {
+    const id = blip.getAttribute("r:embed") ?? blip.getAttribute("r:link");
+    if (id) ids.push(id);
+  }
+  for (const image of descendants(root, "v:imagedata")) {
+    const id = image.getAttribute("r:id");
+    if (id) ids.push(id);
+  }
+  return ids;
+}
+
+/**
+ * Writes out the images behind the given relationship ids, returning the
+ * Markdown embed for each one that made it.
+ *
+ * Done as an up-front pass rather than inline during rendering so that the
+ * rendering itself stays synchronous: an extractor walks its XML tree once
+ * and looks embeds up by id, instead of threading async through every
+ * paragraph and run.
+ */
+export async function saveImages(
+  zip: ZipArchive,
+  partPath: string,
+  rels: Map<string, Relationship>,
+  ids: Iterable<string>,
+  assets: AssetSink
+): Promise<Map<string, string>> {
+  const embeds = new Map<string, string>();
+
+  for (const id of new Set(ids)) {
+    const rel = rels.get(id);
+    if (!rel || rel.external) continue;
+
+    const imagePath = resolvePartPath(partPath, rel.target);
+    const extension = imageExtensionOf(imagePath);
+    if (!extension) continue;
+
+    const data = zip.bytes(imagePath);
+    if (!data) continue;
+
+    const embed = await assets.save(data, extension);
+    if (embed) embeds.set(id, embed);
+  }
+
+  return embeds;
 }
 
 /**

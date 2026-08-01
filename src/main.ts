@@ -1,4 +1,5 @@
 import { FuzzySuggestModal, Notice, Plugin, TAbstractFile, TFile, TFolder, normalizePath } from "obsidian";
+import { AssetSink, createAssetSink, NO_ASSETS } from "./assets";
 import { extractorFor, isSupported, SUPPORTED_EXTENSIONS } from "./extractors";
 import { DEFAULT_SETTINGS, DocToMarkdownSettings, DocToMarkdownSettingTab } from "./settings";
 
@@ -45,9 +46,18 @@ export default class DocToMarkdownPlugin extends Plugin {
     const notice = new Notice(`Converting ${file.name}…`, 0);
     try {
       const data = Buffer.from(await this.app.vault.readBinary(file));
-      const result = await extract(data);
 
-      const note = await this.writeNote(file, this.composeNote(file, result.markdown, result.warnings));
+      // The note path is settled before extraction so images can be written
+      // into a folder named after the note that will hold them.
+      const folder = await this.resolveOutputFolder(file);
+      const notePath = this.availablePath(folder, file.basename);
+      const noteBasename = notePath.slice(notePath.lastIndexOf("/") + 1, -".md".length);
+
+      const result = await extract(data, this.assetSink(folder, noteBasename));
+      const note = await this.app.vault.create(
+        notePath,
+        this.composeNote(file, result.markdown, result.warnings)
+      );
       notice.hide();
       new Notice(`Converted ${file.name} → ${note.basename}`);
 
@@ -86,10 +96,32 @@ export default class DocToMarkdownPlugin extends Plugin {
     return `${sections.join("\n\n")}\n`;
   }
 
-  private async writeNote(source: TFile, content: string): Promise<TFile> {
-    const folder = await this.resolveOutputFolder(source);
-    const path = this.availablePath(folder, source.basename);
-    return this.app.vault.create(path, content);
+  /**
+   * Writes extracted images into `<note name> attachments/` beside the note.
+   *
+   * The folder is created on the first image rather than up front, so a
+   * document with no images doesn't leave an empty folder behind.
+   */
+  private assetSink(folder: string, noteBasename: string): AssetSink {
+    if (!this.settings.extractImages) return NO_ASSETS;
+
+    const prefix = folder === "" || folder === "/" ? "" : `${folder}/`;
+    const attachments = `${prefix}${noteBasename} attachments`;
+    let created = false;
+
+    return createAssetSink(async (data, name) => {
+      if (!created) {
+        if (!(this.app.vault.getAbstractFileByPath(attachments) instanceof TFolder)) {
+          await this.app.vault.createFolder(attachments);
+        }
+        created = true;
+      }
+      const path = `${attachments}/${name}`;
+      // createBinary wants a plain ArrayBuffer; a Buffer is a view into a
+      // pooled one, so hand over a copy of just this image's bytes.
+      await this.app.vault.createBinary(path, data.buffer.slice(data.byteOffset, data.byteOffset + data.length) as ArrayBuffer);
+      return `![[${path}]]`;
+    });
   }
 
   private async resolveOutputFolder(source: TFile): Promise<string> {

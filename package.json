@@ -23,6 +23,7 @@
     "typescript-eslint": "^8.35.1"
   },
   "dependencies": {
-    "pdfjs-dist": "^4.8.69"
+    "pdfjs-dist": "^4.8.69",
+    "tesseract.js": "^7.0.0"
   }
 }

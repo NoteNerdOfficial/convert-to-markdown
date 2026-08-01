@@ -1,5 +1,14 @@
 import { ZipArchive } from "../zip";
-import { children, descendants, parseXml, readRelationships, resolvePartPath } from "../ooxml";
+import {
+  children,
+  descendants,
+  imageRelationshipIds,
+  parseXml,
+  readRelationships,
+  resolvePartPath,
+  saveImages,
+} from "../ooxml";
+import { AssetSink } from "../assets";
 import { escapeInline, heading, joinBlocks, table } from "../markdown";
 import { ExtractResult } from "./types";
 
@@ -18,7 +27,7 @@ const STYLES_PART = "xl/styles.xml";
  * carry a dozen hidden helper sheets that would otherwise land in the note as
  * noise.
  */
-export async function extractXlsx(data: Buffer): Promise<ExtractResult> {
+export async function extractXlsx(data: Buffer, assets: AssetSink): Promise<ExtractResult> {
   const zip = ZipArchive.open(data);
   const workbookXml = zip.text(WORKBOOK_PART);
   if (!workbookXml) throw new Error("not an Excel workbook (no xl/workbook.xml)");
@@ -43,16 +52,20 @@ export async function extractXlsx(data: Buffer): Promise<ExtractResult> {
     const rel = relId ? rels.get(relId) : undefined;
     if (!rel || rel.external) continue;
 
-    const sheetXml = zip.text(resolvePartPath(WORKBOOK_PART, rel.target));
+    const sheetPath = resolvePartPath(WORKBOOK_PART, rel.target);
+    const sheetXml = zip.text(sheetPath);
     if (!sheetXml) continue;
 
     const rows = readSheetRows(sheetXml, sharedStrings, cellFormats);
-    if (rows.length === 0) {
+    const embeds = await sheetImages(zip, sheetPath, assets);
+    if (rows.length === 0 && embeds.length === 0) {
       emptySheets++;
       continue;
     }
 
-    lines.push("", heading(2, name), "", ...table(rows), "");
+    // Images float over the grid at pixel offsets rather than living in a
+    // cell, so there's no row they belong to — they go after the table.
+    lines.push("", heading(2, name), "", ...table(rows), "", ...embeds.flatMap((embed) => [embed, ""]));
   }
 
   const warnings: string[] = [];
@@ -65,6 +78,31 @@ export async function extractXlsx(data: Buffer): Promise<ExtractResult> {
   warnings.push("Formulas are exported as their last-calculated values.");
 
   return { markdown: joinBlocks(lines), warnings };
+}
+
+const DRAWING_REL_TYPE = "http://schemas.openxmlformats.org/officeDocument/2006/relationships/drawing";
+
+/**
+ * Images on a worksheet, in the order the drawing part lists them.
+ *
+ * Excel keeps them out of the sheet entirely: the sheet points at a drawing
+ * part, and that part holds the pictures with their own relationships.
+ */
+async function sheetImages(zip: ZipArchive, sheetPath: string, assets: AssetSink): Promise<string[]> {
+  const drawingRel = [...readRelationships(zip, sheetPath).values()].find(
+    (rel) => rel.type === DRAWING_REL_TYPE && !rel.external
+  );
+  if (!drawingRel) return [];
+
+  const drawingPath = resolvePartPath(sheetPath, drawingRel.target);
+  const drawingXml = zip.text(drawingPath);
+  if (!drawingXml) return [];
+
+  const drawingRels = readRelationships(zip, drawingPath);
+  const ids = [...new Set(imageRelationshipIds(parseXml(drawingXml)))];
+  const embeds = await saveImages(zip, drawingPath, drawingRels, ids, assets);
+
+  return ids.map((id) => embeds.get(id)).filter((embed): embed is string => embed !== undefined);
 }
 
 function readSheetRows(

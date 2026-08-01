@@ -1,10 +1,12 @@
 # Doc to Markdown
 
-Converts PDF, Word, PowerPoint and Excel files in your vault into Markdown notes.
+Converts PDF, Word, PowerPoint, Excel and image files in your vault into
+Markdown notes, images and all.
 
-No AI, no API key, no network call, no external binary. Each format is parsed
-directly from its own structure, so the same file always produces the same
-note.
+No AI, no API key, no external binary. Each format is parsed directly from its
+own structure, so the same file always produces the same note. (One exception,
+called out below: reading an image means OCR, which downloads its engine the
+first time.)
 
 ## Why not markitdown
 
@@ -19,9 +21,43 @@ the structure the format already records:
 | `.pptx` | Slide parts in `p:sldIdLst` order | One section per slide in *presentation* order, title placeholders as headings, speaker notes, slide tables |
 | `.xlsx` | Worksheets, `sharedStrings.xml`, `styles.xml` | Dates instead of serial numbers, `27.38` instead of `27.383982300884924`, hidden helper sheets skipped |
 | `.pdf` | The text layer, via pdf.js | Headings from font size, paragraphs rejoined across line breaks, de-hyphenation, running headers/footers dropped |
+| `.png` `.jpg` `.webp` `.gif` `.bmp` `.tiff` | Local OCR (Tesseract) | Text off a screenshot or photo, laid out as paragraphs rather than one line per pixel row |
 
 Macro-enabled variants (`.docm`, `.pptm`, `.xlsm`) are the same parts plus a
 VBA blob, and convert identically.
+
+## Images
+
+Images are pulled out of the source file, written to `<note name>
+attachments/` beside the note, and embedded where they actually sat — a figure
+inside a Word table cell comes out inside that table cell. Identical images are
+written once no matter how many times they're used, so a logo on forty slides
+is one file.
+
+Word, PowerPoint and Excel store images in their original encoding, so those
+come out untouched (`.jpeg` stays `.jpeg`). A PDF doesn't store files at all —
+it stores decoded pixels — so images from a PDF are re-encoded as PNG. Images
+under 64px on a side are treated as rules, bullets and icons and skipped.
+
+Turn the whole thing off with **Extract images** in settings for text-only
+notes.
+
+## OCR
+
+An image file has no structure to read, so converting one runs Tesseract — a
+classical OCR engine (line segmentation plus an LSTM character recogniser)
+compiled to WASM. It is not an LLM, takes no API key, and the image never
+leaves your machine.
+
+The engine and English training data (~19 MB) download on the first image
+conversion and are cached by the app afterwards; every conversion after that
+works offline. Nothing else in the plugin touches the network.
+
+Regions Tesseract is unsure of — lettering picked out of a photograph, logo
+marks, JPEG artefacts — are dropped rather than written into the note as
+gibberish, and counted in the conversion notes. Large display type reversed out
+of a coloured background is the common thing OCR misses; check the note against
+the image when the confidence warning appears.
 
 ## Usage
 
@@ -34,14 +70,16 @@ with no text layer — is listed in a collapsed callout at the end.
 
 ## Known limits
 
-- **Scanned PDFs produce nothing.** A PDF that is only page images has no text
-  layer to read, and extracting one needs OCR, which this plugin does not do.
-  That case is reported as an error rather than silently written as an empty
-  note.
-- **Images are not extracted**, from any format. Text only.
+- **Scanned PDFs are refused, not OCR'd.** A PDF that is only page images has
+  no text layer, and it is reported as an error rather than silently written
+  as an empty note. The OCR path exists but is not wired into the PDF
+  extractor.
+- **Windows metafiles (EMF/WMF)** can't be embedded — nothing in Obsidian
+  renders them — so they're skipped and counted.
 - **Excel formulas** export as their last-calculated value — the value Excel
   itself stored in the file.
-- **Charts and embedded objects** in decks are skipped and counted.
+- **Charts and embedded objects** in decks are skipped and counted; a chart is
+  a data structure, not a picture, so there's nothing to embed.
 - Letter-spaced PDF headings can pick up stray spaces (`THI S BOOK`); the gap
   between tracked glyphs is genuinely wider than an unspaced word break.
 
@@ -69,6 +107,13 @@ The zip reader is hand-rolled (`src/zip.ts`) rather than JSZip. JSZip's
 transitive dependencies create `<script>` elements as a legacy task-scheduling
 trick, which gets plugins flagged by Obsidian's community-plugin review as
 "code obfuscation" — a false positive that is simpler to avoid than to argue.
-The only runtime dependency is `pdfjs-dist`, whose worker is inlined at build
-time because a plugin release can only ship `main.js`, `manifest.json` and
-`styles.css`.
+PNG encoding for PDF images is hand-rolled too (`src/png.ts`), on top of the
+`zlib` the zip reader already uses, so it works identically in Obsidian and in
+the Node harness.
+
+The runtime dependencies are `pdfjs-dist` and `tesseract.js`. Both normally
+load their worker script from a separate file or a CDN at runtime; a plugin
+release can only ship `main.js`, `manifest.json` and `styles.css`, so both
+workers are inlined at build time and handed to the library as a Blob URL.
+Tesseract's WASM engine and language data still come from a CDN on first use —
+they're too large to inline, and the language data has to be fetched somehow.

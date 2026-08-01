@@ -7,7 +7,7 @@
  * The extractors expect the DOM globals Obsidian gets from Electron; this
  * shims the two they actually use and otherwise runs the real code.
  */
-import { readFileSync, writeFileSync } from "node:fs";
+import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { basename, extname, join } from "node:path";
 import { pathToFileURL } from "node:url";
 import esbuild from "esbuild";
@@ -41,19 +41,22 @@ const outDir = process.env.OUT_DIR ?? ".";
 const bundlePath = "node_modules/.cache/convert-harness.mjs";
 
 await esbuild.build({
-  entryPoints: ["src/extractors/index.ts"],
+  entryPoints: ["tools/harness-entry.ts"],
   bundle: true,
   platform: "node",
   format: "esm",
   target: "esnext",
   outfile: bundlePath,
-  external: ["obsidian", "pdfjs-dist"],
-  define: { __PDF_WORKER_SOURCE__: '""' },
+  // Both are left external so Node loads the real packages: bundling pdf.js
+  // trips an esbuild/private-field incompatibility, and tesseract.js needs
+  // its own node build to find the OCR engine.
+  external: ["obsidian", "pdfjs-dist", "tesseract.js"],
+  define: { __PDF_WORKER_SOURCE__: '""', __TESSERACT_WORKER_SOURCE__: '""' },
   logLevel: "warning",
 });
 
-const { extractorFor } = await import(
-  pathToFileURL(bundlePath.startsWith("/") ? bundlePath : join(process.cwd(), bundlePath)).href
+const { extractorFor, createAssetSink } = await import(
+  pathToFileURL(join(process.cwd(), bundlePath)).href
 );
 
 for (const file of files) {
@@ -64,9 +67,16 @@ for (const file of files) {
     continue;
   }
 
+  const name = basename(file, extname(file));
+  const assetDir = join(outDir, `${name} attachments`);
+
   try {
-    const result = await extract(readFileSync(file));
-    const target = join(outDir, `${basename(file, extname(file))}.md`);
+    const result = await extract(readFileSync(file), createAssetSink(async (data, assetName) => {
+      mkdirSync(assetDir, { recursive: true });
+      writeFileSync(join(assetDir, assetName), data);
+      return `![[${name} attachments/${assetName}]]`;
+    }));
+    const target = join(outDir, `${name}.md`);
     writeFileSync(target, result.markdown + "\n");
     console.error(`OK    ${file} → ${target} (${result.markdown.length} chars)`);
     for (const warning of result.warnings) console.error(`      note: ${warning}`);

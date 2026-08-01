@@ -6,6 +6,8 @@ export interface DocToMarkdownSettings {
   outputLocation: "sameFolder" | "folder";
   /** Vault-relative folder used when outputLocation is "folder". */
   outputFolder: string;
+  /** Copy images out of the source file into the vault and embed them. */
+  extractImages: boolean;
   /** Record the source file and conversion date in the note's frontmatter. */
   addFrontmatter: boolean;
   /** List anything the extractor dropped or guessed at the end of the note. */
@@ -17,6 +19,7 @@ export interface DocToMarkdownSettings {
 export const DEFAULT_SETTINGS: DocToMarkdownSettings = {
   outputLocation: "sameFolder",
   outputFolder: "Converted",
+  extractImages: true,
   addFrontmatter: true,
   addConversionNotes: true,
   openAfterConvert: true,
@@ -60,6 +63,27 @@ export class DocToMarkdownSettingTab extends PluginSettingTab {
             })
         );
     }
+
+    new Setting(containerEl)
+      .setName("Extract images")
+      .setDesc(
+        "Copy images out of the document into an attachments folder beside the note and embed them. " +
+          "Turn off for text-only notes."
+      )
+      .addToggle((toggle) =>
+        toggle.setValue(this.plugin.settings.extractImages).onChange(async (value) => {
+          this.plugin.settings.extractImages = value;
+          await this.plugin.saveSettings();
+        })
+      );
+
+    new Setting(containerEl)
+      .setName("Reading images (OCR)")
+      .setDesc(
+        "Converting an image file runs local OCR — no API key, and the image never leaves your machine. " +
+          "The first conversion downloads the recognition engine and English training data (~19 MB), " +
+          "which the app then caches; every conversion after that works offline."
+      );
 
     new Setting(containerEl)
       .setName("Add frontmatter")
