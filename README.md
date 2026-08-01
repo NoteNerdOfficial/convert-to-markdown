@@ -41,12 +41,34 @@ The note is written next to the original (configurable), never overwriting an
 existing note. Anything the converter dropped — images, hidden sheets, pages
 with no text layer — is listed in a collapsed callout at the end.
 
-## Why not markitdown
+## Compared to markitdown
 
-`markitdown` is one abstraction over every format, which means it makes
-one-size-fits-all decisions about what structure means — and those decisions
-are where the mess comes from. Here each format gets its own extractor, using
-the structure the format already records:
+The Obsidian plugins in this space wrap Microsoft's `markitdown`, which is one
+abstraction over every format: it makes one-size-fits-all decisions about what
+structure means, and those decisions are where the mess comes from.
+
+**Nothing to install.** A markitdown-based plugin needs Python on the machine
+and `pip install markitdown`, and fails with "Python is not installed or not
+found at the configured path" until it has both. This one is plain JavaScript
+inside Obsidian — which also means it works on a locked-down machine where
+installing Python is the step that's blocked.
+
+**Structure survives.** Headings keep their levels, lists stay lists, tables
+stay tables, and images are written into the vault and embedded at the point
+they appeared. Running the same PDF through both, markitdown returns the text
+hard-wrapped exactly where the PDF's column broke, hyphens included —
+`medica-` / `tions`, `occlu-` / `sion` — because a PDF line break is a
+typesetting artifact it preserves rather than undoes. This one rejoins the
+paragraph and repairs the hyphenation.
+
+**Where markitdown is better today: multi-column PDFs.** It runs a layout
+analysis that keeps columns apart. This one groups text by shared baseline
+across the full page width, so on a two-column paper it reads straight across
+the columns and interleaves them. Single-column PDFs — reports, ebooks, most
+business documents — are unaffected. If your PDFs are academic papers,
+markitdown currently wins on that one format.
+
+Per format, what's read and what it buys:
 
 | Format | What it reads | What that buys |
 | --- | --- | --- |
@@ -123,6 +145,10 @@ conversion says which one.
 
 ## Known limits
 
+- **Multi-column PDFs interleave.** Lines are grouped by shared baseline
+  across the whole page, so a two-column academic paper reads straight across
+  both columns instead of down one and then the other. Single-column documents
+  are unaffected.
 - **Scanned PDFs are refused, not OCR'd.** A PDF that is only page images has
   no text layer, and it is reported as an error rather than silently written
   as an empty note. The OCR path exists but is not wired into the PDF
