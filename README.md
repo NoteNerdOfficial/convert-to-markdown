@@ -49,7 +49,7 @@ classical OCR engine (line segmentation plus an LSTM character recogniser)
 compiled to WASM. It is not an LLM, takes no API key, and the image never
 leaves your machine.
 
-The engine and English training data (~19 MB) download on the first image
+The engine (~3.7 MB) and English training data (5 MB) download on the first image
 conversion and are cached by the app afterwards; every conversion after that
 works offline. Nothing else in the plugin touches the network.
 

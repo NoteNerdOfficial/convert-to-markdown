@@ -81,7 +81,7 @@ export class DocToMarkdownSettingTab extends PluginSettingTab {
       .setName("Reading images (OCR)")
       .setDesc(
         "Converting an image file runs local OCR — no API key, and the image never leaves your machine. " +
-          "The first conversion downloads the recognition engine and English training data (~19 MB), " +
+          "The first conversion downloads the recognition engine and English training data (~9 MB), " +
           "which the app then caches; every conversion after that works offline."
       );
 
