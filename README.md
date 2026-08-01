@@ -17,6 +17,30 @@ local neural recogniser, not a language model and not a service, but calling
 it "no AI" would oversell it. It also downloads its engine the first time you
 use it. Details under [OCR](#ocr).
 
+## Installing
+
+Not in the community plugin store yet, so install it by hand:
+
+1. Copy `main.js` and `manifest.json` into
+   `<vault>/.obsidian/plugins/doc-to-markdown/`
+2. Settings → Community plugins → enable **Doc to Markdown**
+
+Nothing else. No runtime to install, no binary to put on PATH, no account.
+Desktop only — it uses Node's `zlib`, which Obsidian mobile doesn't have.
+
+The first time you convert an *image*, there's a one-off engine download (see
+[OCR](#ocr)); the notice shows its progress. Everything else works
+immediately and offline.
+
+## Usage
+
+- Right-click a supported file in the file explorer → **Convert to Markdown**
+- Or run **Doc to Markdown: Convert a file to Markdown** from the command palette
+
+The note is written next to the original (configurable), never overwriting an
+existing note. Anything the converter dropped — images, hidden sheets, pages
+with no text layer — is listed in a collapsed callout at the end.
+
 ## Why not markitdown
 
 `markitdown` is one abstraction over every format, which means it makes
@@ -75,6 +99,12 @@ The download happens inside the first conversion, so that one takes noticeably
 longer than the rest. The notice reports what it's doing while it waits
 (`loading language traineddata — 61%`) rather than sitting on "Converting…".
 
+Regions Tesseract is unsure of — lettering picked out of a photograph, logo
+marks, JPEG artefacts — are dropped rather than written into the note as
+gibberish, and counted in the conversion notes. Large display type reversed out
+of a coloured background is the common thing OCR misses; check the note against
+the image when the confidence warning appears.
+
 ### Locked-down machines
 
 If that CDN is blocked — common on corporate networks — put the two files in a
@@ -90,36 +120,6 @@ Download them once somewhere with access:
 Both go in the same folder, keeping their filenames (the `.gz` may be
 unzipped, either works). If the folder is set but a file is missing, the
 conversion says which one.
-
-Regions Tesseract is unsure of — lettering picked out of a photograph, logo
-marks, JPEG artefacts — are dropped rather than written into the note as
-gibberish, and counted in the conversion notes. Large display type reversed out
-of a coloured background is the common thing OCR misses; check the note against
-the image when the confidence warning appears.
-
-## Installing
-
-Not in the community plugin store yet, so install it by hand:
-
-1. Copy `main.js` and `manifest.json` into
-   `<vault>/.obsidian/plugins/doc-to-markdown/`
-2. Settings → Community plugins → enable **Doc to Markdown**
-
-Nothing else. No runtime to install, no binary to put on PATH, no account.
-Desktop only — it uses Node's `zlib`, which Obsidian mobile doesn't have.
-
-The first time you convert an *image*, there's a one-off engine download (see
-[OCR](#ocr)); the notice shows its progress. Everything else works
-immediately and offline.
-
-## Usage
-
-- Right-click a supported file in the file explorer → **Convert to Markdown**
-- Or run **Doc to Markdown: Convert a file to Markdown** from the command palette
-
-The note is written next to the original (configurable), never overwriting an
-existing note. Anything the converter dropped — images, hidden sheets, pages
-with no text layer — is listed in a collapsed callout at the end.
 
 ## Known limits
 
