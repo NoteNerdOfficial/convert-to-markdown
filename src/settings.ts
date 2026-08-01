@@ -8,6 +8,8 @@ export interface DocToMarkdownSettings {
   outputFolder: string;
   /** Copy images out of the source file into the vault and embed them. */
   extractImages: boolean;
+  /** Vault folder holding the OCR engine files, or "" to download them. */
+  ocrDataFolder: string;
   /** Record the source file and conversion date in the note's frontmatter. */
   addFrontmatter: boolean;
   /** List anything the extractor dropped or guessed at the end of the note. */
@@ -20,6 +22,7 @@ export const DEFAULT_SETTINGS: DocToMarkdownSettings = {
   outputLocation: "sameFolder",
   outputFolder: "Converted",
   extractImages: true,
+  ocrDataFolder: "",
   addFrontmatter: true,
   addConversionNotes: true,
   openAfterConvert: true,
@@ -81,8 +84,26 @@ export class DocToMarkdownSettingTab extends PluginSettingTab {
       .setName("Reading images (OCR)")
       .setDesc(
         "Converting an image file runs local OCR — no API key, and the image never leaves your machine. " +
-          "The first conversion downloads the recognition engine and English training data (~9 MB), " +
-          "which the app then caches; every conversion after that works offline."
+          "By default the recognition engine and English training data (~9 MB) download on first use " +
+          "and are then cached; every conversion after that works offline."
+      );
+
+    new Setting(containerEl)
+      .setName("OCR engine folder")
+      .setDesc(
+        "For machines where the CDN is blocked. Put tesseract-core-simd-lstm.wasm.js and " +
+          "eng.traineddata in a vault folder and name it here, and OCR never touches the network. " +
+          "Leave empty to download them on first use. See the README for the two download links."
+      )
+      .addText((text) =>
+        text
+          .setPlaceholder("(download on first use)")
+          .setValue(this.plugin.settings.ocrDataFolder)
+          .onChange(async (value) => {
+            const trimmed = value.trim();
+            this.plugin.settings.ocrDataFolder = trimmed === "" ? "" : normalizePath(trimmed);
+            await this.plugin.saveSettings();
+          })
       );
 
     new Setting(containerEl)

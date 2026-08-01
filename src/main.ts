@@ -1,6 +1,7 @@
 import { FuzzySuggestModal, Notice, Plugin, TAbstractFile, TFile, TFolder, normalizePath } from "obsidian";
 import { AssetSink, createAssetSink, NO_ASSETS } from "./assets";
 import { extractorFor, isSupported, SUPPORTED_EXTENSIONS } from "./extractors";
+import { CDN_OCR, CORE_FILE_PREFERENCE, LANGUAGE_FILE_NAMES, OcrProvider } from "./ocr";
 import { DEFAULT_SETTINGS, DocToMarkdownSettings, DocToMarkdownSettingTab } from "./settings";
 
 export default class DocToMarkdownPlugin extends Plugin {
@@ -53,7 +54,7 @@ export default class DocToMarkdownPlugin extends Plugin {
       const notePath = this.availablePath(folder, file.basename);
       const noteBasename = notePath.slice(notePath.lastIndexOf("/") + 1, -".md".length);
 
-      const result = await extract(data, this.assetSink(folder, noteBasename));
+      const result = await extract(data, this.assetSink(folder, noteBasename), this.ocrProvider());
       const note = await this.app.vault.create(
         notePath,
         this.composeNote(file, result.markdown, result.warnings)
@@ -94,6 +95,42 @@ export default class DocToMarkdownPlugin extends Plugin {
     }
 
     return `${sections.join("\n\n")}\n`;
+  }
+
+  /**
+   * Supplies the OCR engine from a vault folder when one is configured.
+   *
+   * Resolved lazily — only the image extractor ever asks — so converting a
+   * Word document never reads 9 MB of recogniser off disk.
+   */
+  private ocrProvider(): OcrProvider {
+    const folder = this.settings.ocrDataFolder;
+    if (!folder) return CDN_OCR;
+
+    return {
+      resolve: async () => {
+        const { adapter } = this.app.vault;
+        const listing = await adapter.list(folder).catch(() => {
+          throw new Error(`OCR engine folder "${folder}" doesn't exist — check the setting`);
+        });
+        const names = new Set(listing.files.map((path) => path.slice(path.lastIndexOf("/") + 1)));
+
+        const coreName = CORE_FILE_PREFERENCE.find((name) => names.has(name));
+        const languageName = LANGUAGE_FILE_NAMES.find((name) => names.has(name));
+        if (!coreName || !languageName) {
+          const missing = [
+            coreName ? null : CORE_FILE_PREFERENCE[0],
+            languageName ? null : LANGUAGE_FILE_NAMES[0],
+          ].filter(Boolean);
+          throw new Error(`OCR engine folder "${folder}" is missing ${missing.join(" and ")}`);
+        }
+
+        return {
+          core: await adapter.readBinary(`${folder}/${coreName}`),
+          language: await adapter.readBinary(`${folder}/${languageName}`),
+        };
+      },
+    };
   }
 
   /**

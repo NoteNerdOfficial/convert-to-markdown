@@ -1,6 +1,7 @@
 import { createWorker, PSM } from "tesseract.js";
 import { AssetSink } from "../assets";
 import { escapeInline, joinBlocks, squashSpaces } from "../markdown";
+import { CDN_OCR, OcrEngineFiles, OcrProvider } from "../ocr";
 import { ExtractResult } from "./types";
 
 // tesseract.js's worker script, inlined at build time (see
@@ -27,12 +28,16 @@ let workerUrl: string | null = null;
  * the browser afterwards, so an image conversion needs a network connection
  * once. Nothing about the image itself leaves the machine.
  */
-export async function extractImage(data: Buffer, assets: AssetSink): Promise<ExtractResult> {
+export async function extractImage(
+  data: Buffer,
+  assets: AssetSink,
+  ocr: OcrProvider = CDN_OCR
+): Promise<ExtractResult> {
   const format = sniffImageFormat(data);
   if (!format) throw new Error("not a readable image (unrecognised file signature)");
 
   const embed = await assets.save(data, format);
-  const { paragraphs, confidence, discarded } = await recognize(data);
+  const { paragraphs, confidence, discarded } = await recognize(data, await ocr.resolve());
 
   const warnings: string[] = [];
   if (paragraphs.length === 0) {
@@ -66,9 +71,10 @@ export async function extractImage(data: Buffer, assets: AssetSink): Promise<Ext
 const MIN_PARAGRAPH_CONFIDENCE = 60;
 
 async function recognize(
-  data: Buffer
+  data: Buffer,
+  engine: OcrEngineFiles | null
 ): Promise<{ paragraphs: string[]; confidence: number; discarded: number }> {
-  const worker = await createWorker("eng", undefined, workerOptions());
+  const worker = await createWorker("eng", undefined, { ...workerOptions(), ...engineOptions(engine) });
   try {
     // Tesseract's own default is to treat the image as one uniform block of
     // text, which flattens a page's headings, columns and captions into a
@@ -112,11 +118,70 @@ function workerOptions(): { workerPath?: string; workerBlobURL?: boolean } {
   if (__TESSERACT_WORKER_SOURCE__ === "") return {};
 
   if (!workerUrl) {
-    const blob = new Blob([__TESSERACT_WORKER_SOURCE__], { type: "text/javascript" });
+    const blob = new Blob([BLOB_PATH_SHIM, __TESSERACT_WORKER_SOURCE__], { type: "text/javascript" });
     workerUrl = URL.createObjectURL(blob);
   }
   return { workerPath: workerUrl, workerBlobURL: false };
 }
+
+/**
+ * Lets the engine be handed to Tesseract as bytes instead of a download.
+ *
+ * Tesseract only accepts a *directory* for `langPath` — it appends
+ * `/eng.traineddata` itself and fetches that. There's no directory to point
+ * at when the bytes are already in memory, and a Blob URL can't have a path
+ * appended to it. So the language data goes in as a Blob URL anyway, and the
+ * shim below (running inside the worker) strips the filename Tesseract tacked
+ * on before the fetch happens.
+ *
+ * `corePath` is easier: Tesseract loads it directly when it ends in `js`,
+ * which a `#.js` fragment satisfies without changing what the URL resolves
+ * to.
+ */
+function engineOptions(engine: OcrEngineFiles | null): Record<string, unknown> {
+  if (!engine) return {};
+
+  const core = URL.createObjectURL(new Blob([engine.core], { type: "text/javascript" }));
+  const language = URL.createObjectURL(new Blob([engine.language], { type: "application/octet-stream" }));
+
+  return {
+    corePath: `${core}#.js`,
+    langPath: language,
+    // Keeps the appended filename predictable for the shim; gzipped data is
+    // detected from its magic bytes regardless.
+    gzip: false,
+    // Nothing to cache — the bytes come from disk every time, and writing
+    // them into IndexedDB as well would just duplicate them.
+    cacheMethod: "none",
+  };
+}
+
+/**
+ * Runs inside the OCR worker, ahead of Tesseract's own code.
+ *
+ * Undoes the two path manipulations Tesseract performs on values that are
+ * really Blob URLs: the `/eng.traineddata` it appends to `langPath`, and the
+ * `#.js` fragment we added to `corePath` to satisfy its file-vs-directory
+ * check. Both are string edits on a URL that is already exactly the resource
+ * wanted.
+ */
+const BLOB_PATH_SHIM = `(() => {
+  const nativeFetch = self.fetch.bind(self);
+  self.fetch = (input, init) => {
+    const url = typeof input === "string" ? input : input && input.url;
+    if (typeof url === "string") {
+      const match = /^(blob:.*)\\/[^/]*\\.traineddata(\\.gz)?$/.exec(url);
+      if (match) return nativeFetch(match[1], init);
+    }
+    return nativeFetch(input, init);
+  };
+  const nativeImportScripts = self.importScripts.bind(self);
+  self.importScripts = (...urls) =>
+    nativeImportScripts(...urls.map((url) =>
+      typeof url === "string" && url.startsWith("blob:") ? url.split("#")[0] : url
+    ));
+})();
+`;
 
 /**
  * The image's real format, from its own magic bytes rather than its file

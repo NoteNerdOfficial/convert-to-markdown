@@ -71,6 +71,22 @@ That traffic is one-way: it fetches the engine, it never sends the image.
 After the first run OCR works with the network off, and nothing else in the
 plugin touches the network at all.
 
+### Locked-down machines
+
+If that CDN is blocked — common on corporate networks — put the two files in a
+vault folder and name it in **OCR engine folder** in settings. OCR then reads
+them straight from disk and makes no network request at all, on the first run
+or any other.
+
+Download them once somewhere with access:
+
+- `https://cdn.jsdelivr.net/npm/tesseract.js-core@7/tesseract-core-simd-lstm.wasm.js`
+- `https://cdn.jsdelivr.net/npm/@tesseract.js-data/eng/4.0.0_best_int/eng.traineddata.gz`
+
+Both go in the same folder, keeping their filenames (the `.gz` may be
+unzipped, either works). If the folder is set but a file is missing, the
+conversion says which one.
+
 Regions Tesseract is unsure of — lettering picked out of a photograph, logo
 marks, JPEG artefacts — are dropped rather than written into the note as
 gibberish, and counted in the conversion notes. Large display type reversed out
