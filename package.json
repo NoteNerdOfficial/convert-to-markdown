@@ -1,7 +1,7 @@
 {
   "name": "doc-to-markdown",
   "version": "0.1.0",
-  "description": "Obsidian plugin: convert PDF/DOCX/PPTX/XLSX into clean Markdown, deterministically.",
+  "description": "Obsidian plugin: convert PDF/DOCX/PPTX/XLSX/images into clean Markdown, deterministically.",
   "main": "main.js",
   "scripts": {
     "dev": "node esbuild.config.mjs",
