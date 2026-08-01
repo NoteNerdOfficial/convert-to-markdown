@@ -61,12 +61,12 @@ hard-wrapped exactly where the PDF's column broke, hyphens included —
 typesetting artifact it preserves rather than undoes. This one rejoins the
 paragraph and repairs the hyphenation.
 
-**Where markitdown is better today: multi-column PDFs.** It runs a layout
-analysis that keeps columns apart. This one groups text by shared baseline
-across the full page width, so on a two-column paper it reads straight across
-the columns and interleaves them. Single-column PDFs — reports, ebooks, most
-business documents — are unaffected. If your PDFs are academic papers,
-markitdown currently wins on that one format.
+**Multi-column PDFs read in order.** Columns are detected per page and each
+is read top to bottom before the next, so a two-column paper doesn't come out
+interleaved. Full-width titles and headings are recognised as spanning the
+columns and stay where they belong, and running headers are stripped before
+the columns are worked out — otherwise a footer spread along the page bottom
+lands in the middle of the text.
 
 Per format, what's read and what it buys:
 
@@ -75,7 +75,7 @@ Per format, what's read and what it buys:
 | `.docx` | `word/document.xml` paragraphs and `numbering.xml` | Real heading levels from Word's own styles; ordered vs. unordered lists; tables; hyperlinks; bold/italic |
 | `.pptx` | Slide parts in `p:sldIdLst` order | One section per slide in *presentation* order, title placeholders as headings, speaker notes, slide tables |
 | `.xlsx` | Worksheets, `sharedStrings.xml`, `styles.xml` | Dates instead of serial numbers, `27.38` instead of `27.383982300884924`, hidden helper sheets skipped |
-| `.pdf` | The text layer, via pdf.js | Headings from font size, paragraphs rejoined across line breaks, de-hyphenation, running headers/footers dropped |
+| `.pdf` | The text layer, via pdf.js | Columns read in order, headings from font size, paragraphs rejoined across line breaks, de-hyphenation, running headers/footers dropped |
 | `.png` `.jpg` `.webp` `.gif` `.bmp` `.tiff` | Local OCR (Tesseract) | Text off a screenshot or photo, laid out as paragraphs rather than one line per pixel row |
 
 Macro-enabled variants (`.docm`, `.pptm`, `.xlsm`) are the same parts plus a
@@ -145,10 +145,10 @@ conversion says which one.
 
 ## Known limits
 
-- **Multi-column PDFs interleave.** Lines are grouped by shared baseline
-  across the whole page, so a two-column academic paper reads straight across
-  both columns instead of down one and then the other. Single-column documents
-  are unaffected.
+- **Column detection is geometric, not semantic.** It reads the horizontal
+  distribution of ink per page, so a layout no gutter runs through — text
+  wrapped around a figure, a magazine-style collage — can still come out in
+  the wrong order.
 - **Scanned PDFs are refused, not OCR'd.** A PDF that is only page images has
   no text layer, and it is reported as an error rather than silently written
   as an empty note. The OCR path exists but is not wired into the PDF

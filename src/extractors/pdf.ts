@@ -52,7 +52,7 @@ export async function extractPdf(data: Buffer, assets: AssetSink): Promise<Extra
   }).promise;
 
   try {
-    const pages: Line[][] = [];
+    const pageRows: PositionedItem[][][] = [];
     const pageImages: string[][] = [];
     let skippedImages = 0;
 
@@ -60,7 +60,7 @@ export async function extractPdf(data: Buffer, assets: AssetSink): Promise<Extra
       const page = await document.getPage(pageNumber);
       try {
         const content = await page.getTextContent();
-        pages.push(buildLines(content.items.filter(isTextItem)));
+        pageRows.push(groupRows(positionItems(content.items.filter(isTextItem))));
 
         const extracted = await extractPageImages(page, assets);
         pageImages.push(extracted.embeds);
@@ -69,6 +69,14 @@ export async function extractPdf(data: Buffer, assets: AssetSink): Promise<Extra
         page.cleanup();
       }
     }
+
+    // Running headers and footers are found on the naive full-width rows and
+    // dropped before columns are worked out. A three-part footer spread along
+    // the page bottom is one row here; once the page is split into columns it
+    // becomes three fragments, each landing at the end of a different column,
+    // in the middle of the text.
+    const repeated = repeatedEdgeText(pageRows.map((rows) => rows.map(toLine)));
+    const pages = pageRows.map((rows) => buildPage(withoutFurniture(rows, repeated)));
 
     const allLines = pages.flat();
     if (allLines.length === 0) {
@@ -79,11 +87,10 @@ export async function extractPdf(data: Buffer, assets: AssetSink): Promise<Extra
 
     const bodySize = modeFontSize(allLines);
     const bodyWidth = medianLineWidth(allLines);
-    const isRunningHeader = detectRunningHeaders(pages);
 
     const lines: string[] = [];
     pages.forEach((pageLines, index) => {
-      lines.push(...renderPage(pageLines.filter((line) => !isRunningHeader(line)), bodySize, bodyWidth));
+      lines.push(...renderPage(pageLines, bodySize, bodyWidth));
       // A PDF's drawing operations don't interleave with its text in reading
       // order, so there's no honest position for a figure within the page —
       // they go after the page's text.
@@ -215,35 +222,67 @@ function toPng(image: DecodedImage | undefined): Buffer | null {
   return null;
 }
 
-/**
- * Identifies running headers and footers so they don't land in the note once
- * per page. A PDF has no marker for them — they're just the first and last
- * lines of every page — so they're found by repetition: the same line, page
- * after page, ignoring the page number that changes.
- */
-function detectRunningHeaders(pages: Line[][]): (line: Line) => boolean {
-  const EDGE_LINES = 2;
-  const counts = new Map<string, number>();
+/** Rows this far from the top or bottom of a page can be page furniture. */
+const EDGE_ROWS = 2;
 
-  const edgesOf = (page: Line[]) => [...page.slice(0, EDGE_LINES), ...page.slice(-EDGE_LINES)];
-  const normalize = (text: string) => text.replace(/\d+/g, "#").replace(/\s+/g, " ").trim().toLowerCase();
+/**
+ * Text that repeats at the top or bottom of page after page — the running
+ * header, the footer, the page number.
+ *
+ * A PDF marks none of it, so the only signal is repetition: the same line in
+ * the same position on most pages, ignoring the number that changes.
+ */
+function repeatedEdgeText(pages: (Line | null)[][]): Set<string> {
+  const counts = new Map<string, number>();
 
   for (const page of pages) {
     // Count each distinct line once per page, so a page that happens to
     // repeat a phrase twice doesn't vote twice.
-    for (const key of new Set(edgesOf(page).map((line) => normalize(line.text)))) {
-      counts.set(key, (counts.get(key) ?? 0) + 1);
+    for (const key of new Set(edgesOf(page).map((line) => line && furnitureKey(line.text)))) {
+      if (key) counts.set(key, (counts.get(key) ?? 0) + 1);
     }
   }
 
   // Needs to appear on most pages *and* on enough pages for the repetition to
-  // mean anything — a 3-page document has no reliable signal here.
-  const threshold = Math.max(4, Math.ceil(pages.length * 0.5));
-  const repeated = new Set([...counts].filter(([, count]) => count >= threshold).map(([key]) => key));
-  if (repeated.size === 0) return () => false;
+  // mean anything — a 2-page document has no reliable signal here.
+  const threshold = Math.max(3, Math.ceil(pages.length * 0.5));
+  return new Set([...counts].filter(([, count]) => count >= threshold).map(([key]) => key));
+}
 
-  const edgeLines = new Set(pages.flatMap(edgesOf));
-  return (line) => edgeLines.has(line) && repeated.has(normalize(line.text));
+/** The rows of a page that survive furniture removal, flattened to items. */
+function withoutFurniture(rows: PositionedItem[][], repeated: Set<string>): PositionedItem[] {
+  if (repeated.size === 0) return rows.flat();
+
+  const keep = rows.filter((row, index) => {
+    const atEdge = index < EDGE_ROWS || index >= rows.length - EDGE_ROWS;
+    if (!atEdge) return true;
+    const line = toLine(row);
+    return !line || !repeated.has(furnitureKey(line.text));
+  });
+  return keep.flat();
+}
+
+function edgesOf<T>(page: T[]): T[] {
+  return [...page.slice(0, EDGE_ROWS), ...page.slice(-EDGE_ROWS)];
+}
+
+/**
+ * A footer's identity, independent of where its parts sit on the page.
+ *
+ * Bound documents alternate the layout on facing pages, so the same footer
+ * arrives as "Winter 2007 … 27" on one page and "28 … Winter 2007" on the
+ * next. Comparing the words as an unordered set collapses the two, where
+ * comparing the text would see two different footers each appearing on half
+ * the pages — and drop neither.
+ */
+function furnitureKey(text: string): string {
+  return text
+    .toLowerCase()
+    .replace(/\d+/g, "")
+    .split(/\s+/)
+    .filter((word) => word !== "")
+    .sort()
+    .join(" ");
 }
 
 function isTextItem(item: unknown): item is TextItem {
@@ -254,9 +293,230 @@ interface Line {
   text: string;
   /** Largest glyph height on the line — what makes a heading look like one. */
   size: number;
+  /** Baseline in PDF user space, where larger is further up the page. */
+  top: number;
   /** Left edge in PDF user space, used to detect indented blocks. */
   left: number;
   right: number;
+}
+
+interface PositionedItem {
+  text: string;
+  x: number;
+  y: number;
+  width: number;
+  size: number;
+}
+
+/** Text items reduced to what the layout reconstruction actually reads. */
+function positionItems(items: TextItem[]): PositionedItem[] {
+  return items
+    .filter((item) => item.str !== "")
+    .map((item) => ({
+      text: item.str,
+      x: item.transform[4] as number,
+      y: item.transform[5] as number,
+      width: item.width,
+      size: Math.abs(item.transform[3] as number) || item.height,
+    }));
+}
+
+/**
+ * A page's lines, in reading order.
+ *
+ * Reading order is the whole difficulty. Text items carry positions, not
+ * sequence, so on a single-column page "next" simply means "next line down" —
+ * but on a two-column page that rule reads straight across the gutter and
+ * interleaves the columns into nonsense. So columns are detected first, and
+ * lines are built within each column rather than across the page.
+ */
+function buildPage(positioned: PositionedItem[]): Line[] {
+  if (positioned.length === 0) return [];
+
+  const boundaries = detectColumnBoundaries(positioned);
+  if (boundaries.length === 0) return buildLines(positioned);
+
+  // A row whose ink runs continuously across a gutter is a banner — a title,
+  // a full-width heading — and belongs to no single column. A row of ordinary
+  // body text also has items either side of the gutter, but with the gutter
+  // itself clear, which is what separates the two.
+  const banners: PositionedItem[] = [];
+  const columns: PositionedItem[][] = Array.from({ length: boundaries.length + 1 }, () => []);
+
+  for (const row of groupRows(positioned)) {
+    if (isBanner(row, boundaries)) banners.push(...row);
+    else for (const item of row) columns[columnIndexFor(item, boundaries)].push(item);
+  }
+
+  const bannerLines = buildLines(banners);
+  const columnLines = columns.map(buildLines);
+
+  // Banners divide the page into horizontal bands. Within a band the columns
+  // run left to right; the bands themselves run down the page. That ordering
+  // is what keeps a full-width heading attached to the columns beneath it
+  // rather than migrating to the top or bottom of the page.
+  const out: Line[] = [];
+  const emitted = columnLines.map(() => 0);
+
+  const emitBandAbove = (limit: number) => {
+    for (let column = 0; column < columnLines.length; column++) {
+      const lines = columnLines[column];
+      while (emitted[column] < lines.length && lines[emitted[column]].top > limit) {
+        out.push(lines[emitted[column]++]);
+      }
+    }
+  };
+
+  for (const banner of bannerLines) {
+    emitBandAbove(banner.top);
+    out.push(banner);
+  }
+  emitBandAbove(-Infinity);
+
+  return out;
+}
+
+/** How far an item must overhang a gutter before it counts as spanning it. */
+const SPAN_TOLERANCE = 4;
+
+/** Narrower than this is word spacing or a wide indent, not a gutter. */
+const MIN_GUTTER_WIDTH = 8;
+
+/**
+ * How much of a page's ink a strip can carry and still be a gutter.
+ *
+ * Measured rather than guessed: on a two-column paper the gutter is crossed
+ * by the title, the authors and the abstract — about a quarter of the page's
+ * lines — while the body columns are covered by three quarters of them. The
+ * threshold sits in that gap.
+ */
+const GUTTER_COVERAGE = 0.35;
+
+/** Too few lines to read anything into the horizontal distribution. */
+const MIN_LINES_FOR_COLUMNS = 12;
+
+/** A column this thin is a margin note or a stray boundary, not a column. */
+const MIN_COLUMN_LINES = 4;
+
+/** Narrower than this holds no running text, whatever the whitespace says. */
+const MIN_COLUMN_WIDTH = 60;
+
+/**
+ * Finds the x positions of column gutters, or an empty list for a page that
+ * reads as one column.
+ *
+ * A gutter can't be defined as an *empty* strip: on a typical paper the title
+ * and abstract run the full width and cross it, so nowhere on the page is
+ * truly clear. What distinguishes it is how *rarely* it's crossed — body text
+ * reaches every part of its own column and almost never the gutter. So this
+ * counts, for each strip of the page, how many lines put ink there, and looks
+ * for wide troughs.
+ */
+function detectColumnBoundaries(items: PositionedItem[]): number[] {
+  const rows = buildLines(items);
+  if (rows.length < MIN_LINES_FOR_COLUMNS) return [];
+
+  const pageLeft = Math.min(...items.map((item) => item.x));
+  const pageRight = Math.max(...items.map((item) => item.x + item.width));
+  const width = pageRight - pageLeft;
+  if (width <= 0) return [];
+
+  // One bin per point of page width is finer than any gutter and cheap.
+  const bins = Math.ceil(width);
+  const coverage = new Uint32Array(bins);
+
+  for (const item of items) {
+    const from = Math.max(0, Math.floor(item.x - pageLeft));
+    const to = Math.min(bins, Math.ceil(item.x + item.width - pageLeft));
+    for (let bin = from; bin < to; bin++) coverage[bin]++;
+  }
+
+  const busiest = Math.max(...coverage);
+  if (busiest === 0) return [];
+  const threshold = busiest * GUTTER_COVERAGE;
+
+  const boundaries: number[] = [];
+  let runStart: number | null = null;
+
+  for (let bin = 0; bin <= bins; bin++) {
+    const isTrough = bin < bins && coverage[bin] <= threshold;
+    if (isTrough) {
+      if (runStart === null) runStart = bin;
+      continue;
+    }
+    if (runStart !== null) {
+      // Runs touching either edge are margins, not gutters.
+      if (runStart > 0 && bin < bins && bin - runStart >= MIN_GUTTER_WIDTH) {
+        boundaries.push(pageLeft + (runStart + bin) / 2);
+      }
+      runStart = null;
+    }
+  }
+
+  const kept = dropNarrowColumns(boundaries, pageLeft, pageRight);
+  return kept.length > 0 && producesRealColumns(items, kept) ? kept : [];
+}
+
+/**
+ * Drops boundaries that would carve off a sliver. A page holding one figure
+ * and a caption is mostly whitespace, and wide troughs open all over it
+ * without any of them being a gutter.
+ */
+function dropNarrowColumns(boundaries: number[], pageLeft: number, pageRight: number): number[] {
+  const kept: number[] = [];
+  let edge = pageLeft;
+
+  for (const boundary of boundaries) {
+    if (boundary - edge < MIN_COLUMN_WIDTH) continue;
+    kept.push(boundary);
+    edge = boundary;
+  }
+  // The last column is bounded by the page rather than by another gutter.
+  if (kept.length > 0 && pageRight - edge < MIN_COLUMN_WIDTH) kept.pop();
+  return kept;
+}
+
+/**
+ * Confirms every column actually holds lines of text, not just a stray item
+ * or two that happened to fall on the far side of a boundary.
+ */
+function producesRealColumns(items: PositionedItem[], boundaries: number[]): boolean {
+  const columns: PositionedItem[][] = Array.from({ length: boundaries.length + 1 }, () => []);
+  for (const item of items) columns[columnIndexFor(item, boundaries)].push(item);
+  return columns.every((column) => buildLines(column).length >= MIN_COLUMN_LINES);
+}
+
+/**
+ * Whether a row's text runs across a gutter rather than sitting in a column.
+ *
+ * The test can't be applied to items as they come: pdf.js splits a line
+ * wherever the font changes, so a full-width author credit arrives as a dozen
+ * fragments broken at every superscript, none of which individually reaches
+ * across the gutter. Adjacent fragments are stitched back together first, and
+ * only the resulting continuous runs are measured.
+ */
+function isBanner(row: PositionedItem[], boundaries: number[]): boolean {
+  let start = row[0].x;
+  let end = row[0].x + row[0].width;
+
+  const crossesGutter = () =>
+    boundaries.some((boundary) => start < boundary - SPAN_TOLERANCE && end > boundary + SPAN_TOLERANCE);
+
+  for (const item of row.slice(1)) {
+    if (item.x - end >= MIN_GUTTER_WIDTH) {
+      // A gap this wide breaks the run — anything before it stands alone.
+      if (crossesGutter()) return true;
+      start = item.x;
+    }
+    end = Math.max(end, item.x + item.width);
+  }
+  return crossesGutter();
+}
+
+function columnIndexFor(item: PositionedItem, boundaries: number[]): number {
+  const middle = item.x + item.width / 2;
+  const index = boundaries.findIndex((boundary) => middle < boundary);
+  return index === -1 ? boundaries.length : index;
 }
 
 /**
@@ -267,41 +527,44 @@ interface Line {
  * same line, but a genuinely different line is always at least most of a line
  * height away.
  */
-function buildLines(items: TextItem[]): Line[] {
-  const positioned = items
-    .filter((item) => item.str !== "")
-    .map((item) => ({
-      text: item.str,
-      x: item.transform[4] as number,
-      y: item.transform[5] as number,
-      width: item.width,
-      size: Math.abs(item.transform[3] as number) || item.height,
-    }));
+function buildLines(positioned: PositionedItem[]): Line[] {
+  return groupRows(positioned)
+    .map(toLine)
+    .filter((line): line is Line => line !== null);
+}
 
+/** One row of items as a line, or null when it holds no visible text. */
+function toLine(row: PositionedItem[]): Line | null {
+  const text = joinRun(row);
+  if (text.trim() === "") return null;
+  return {
+    text,
+    size: Math.max(...row.map((item) => item.size)),
+    top: row[0].y,
+    left: row[0].x,
+    right: Math.max(...row.map((item) => item.x + item.width)),
+  };
+}
+
+/**
+ * Items grouped by baseline, top of page first, each row ordered left to
+ * right. Shared by line building and by column classification, which has to
+ * reason about whole rows before any of them become text.
+ */
+function groupRows(positioned: PositionedItem[]): PositionedItem[][] {
   if (positioned.length === 0) return [];
 
-  positioned.sort((a, b) => b.y - a.y || a.x - b.x);
-
-  const lines: Line[] = [];
-  let current: typeof positioned = [];
+  const sorted = [...positioned].sort((a, b) => b.y - a.y || a.x - b.x);
+  const rows: PositionedItem[][] = [];
+  let current: PositionedItem[] = [];
 
   const flush = () => {
     if (current.length === 0) return;
-    current.sort((a, b) => a.x - b.x);
-    const size = Math.max(...current.map((item) => item.size));
-    const text = joinRun(current);
-    if (text.trim() !== "") {
-      lines.push({
-        text,
-        size,
-        left: current[0].x,
-        right: Math.max(...current.map((item) => item.x + item.width)),
-      });
-    }
+    rows.push([...current].sort((a, b) => a.x - b.x));
     current = [];
   };
 
-  for (const item of positioned) {
+  for (const item of sorted) {
     if (current.length > 0) {
       const tolerance = Math.max(current[0].size, item.size) * 0.5;
       if (Math.abs(item.y - current[0].y) > tolerance) flush();
@@ -310,7 +573,7 @@ function buildLines(items: TextItem[]): Line[] {
   }
   flush();
 
-  return lines;
+  return rows;
 }
 
 /**
