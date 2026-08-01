@@ -3,3 +3,6 @@ main.js
 *.js.map
 data.json
 .DS_Store
+
+# Downloaded by the OCR harness run (Node caches traineddata to cwd)
+*.traineddata
