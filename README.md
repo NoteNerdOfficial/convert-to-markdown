@@ -3,10 +3,19 @@
 Converts PDF, Word, PowerPoint, Excel and image files in your vault into
 Markdown notes, images and all.
 
-No AI, no API key, no external binary. Each format is parsed directly from its
-own structure, so the same file always produces the same note. (One exception,
-called out below: reading an image means OCR, which downloads its engine the
-first time.)
+No LLM, no API key, no cloud service, no external binary. Nothing you convert
+is uploaded anywhere — every byte is processed on your machine.
+
+Documents (`.pdf`, `.docx`, `.pptx`, `.xlsx`) are parsed directly from their
+own structure, which makes them fully deterministic and fully offline: the
+same file always produces byte-identical Markdown.
+
+Image files are the one exception, and differ on both counts. Pixels carry no
+structure, so reading one means OCR — statistical rather than structural, and
+occasionally wrong, which is why it reports its confidence. Tesseract is a
+local neural recogniser, not a language model and not a service, but calling
+it "no AI" would oversell it. It also downloads its engine the first time you
+use it. Details under [OCR](#ocr).
 
 ## Why not markitdown
 
@@ -49,9 +58,18 @@ classical OCR engine (line segmentation plus an LSTM character recogniser)
 compiled to WASM. It is not an LLM, takes no API key, and the image never
 leaves your machine.
 
-The engine (~3.7 MB) and English training data (5 MB) download on the first image
-conversion and are cached by the app afterwards; every conversion after that
-works offline. Nothing else in the plugin touches the network.
+The engine and its English model are not shipped in the plugin — an Obsidian
+release can only contain `main.js`, `manifest.json` and `styles.css` — so they
+download from jsdelivr the first time you convert an image:
+
+| What | Size | Cached in |
+| --- | --- | --- |
+| `tesseract-core-simd-lstm.wasm.js`, the recogniser | ~3.7 MB | Electron's HTTP cache |
+| `eng.traineddata`, the English model | 5.0 MB | IndexedDB, by tesseract.js |
+
+That traffic is one-way: it fetches the engine, it never sends the image.
+After the first run OCR works with the network off, and nothing else in the
+plugin touches the network at all.
 
 Regions Tesseract is unsure of — lettering picked out of a photograph, logo
 marks, JPEG artefacts — are dropped rather than written into the note as
