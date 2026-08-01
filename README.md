@@ -13,9 +13,8 @@ same file always produces byte-identical Markdown.
 Image files are the one exception, and differ on both counts. Pixels carry no
 structure, so reading one means OCR — statistical rather than structural, and
 occasionally wrong, which is why it reports its confidence. Tesseract is a
-local neural recogniser, not a language model and not a service, but calling
-it "no AI" would oversell it. It also downloads its engine the first time you
-use it. Details under [OCR](#ocr).
+local neural recogniser, not a language model and not a service. It also
+downloads its engine the first time you use it. Details under [OCR](#ocr).
 
 ![A PowerPoint being converted to Markdown in Obsidian: the deck is picked from a
 list, and the resulting note has the slide titles as headings, the bullets as
@@ -24,11 +23,8 @@ alongside them.](docs/demo.gif)
 
 ## Installing
 
-Not in the community plugin store yet, so install it by hand:
-
-1. Copy `main.js` and `manifest.json` into
-   `<vault>/.obsidian/plugins/convert-to-markdown/`
-2. Settings → Community plugins → enable **Convert to Markdown**
+Settings → Community plugins → Browse → search **Convert to Markdown** →
+Install, then Enable.
 
 Nothing else. No runtime to install, no binary to put on PATH, no account.
 Desktop only — it uses Node's `zlib`, which Obsidian mobile doesn't have.
