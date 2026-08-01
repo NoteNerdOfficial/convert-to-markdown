@@ -17,6 +17,11 @@ local neural recogniser, not a language model and not a service, but calling
 it "no AI" would oversell it. It also downloads its engine the first time you
 use it. Details under [OCR](#ocr).
 
+![A PowerPoint being converted to Markdown in Obsidian: the deck is picked from a
+list, and the resulting note has the slide titles as headings, the bullets as
+lists, the slide table as a Markdown table, and the deck's images embedded
+alongside them.](docs/demo.gif)
+
 ## Installing
 
 Not in the community plugin store yet, so install it by hand:
