@@ -10,74 +10,311 @@ import {
 } from "../ooxml";
 import { AssetSink } from "../assets";
 import { escapeInline, heading, joinBlocks, table } from "../markdown";
-import { ExtractResult } from "./types";
+import { OcrProvider } from "../ocr";
+import { DEFAULT_EXTRACT_OPTIONS, ExtractOptions, ExtractResult } from "./types";
 
 const WORKBOOK_PART = "xl/workbook.xml";
 const SHARED_STRINGS_PART = "xl/sharedStrings.xml";
 const STYLES_PART = "xl/styles.xml";
 
 /**
- * .xlsx → one Markdown table per visible sheet.
+ * .xlsx → one Markdown table per sheet.
  *
  * Two things separate this from a naive dump. First, cell formats: Excel
  * stores a date as a plain number and a displayed `27.38` as
  * 27.383982300884924, with only the *cell format* saying otherwise — without
  * reading styles.xml, every date comes out as a five-digit serial and every
- * computed column as float noise. Second, hidden sheets — workbooks routinely
- * carry a dozen hidden helper sheets that would otherwise land in the note as
- * noise.
+ * computed column as float noise.
+ *
+ * Second, accounting for every sheet. Hidden is a presentation choice, not a
+ * statement about the data — the hidden sheets in a workbook are as often the
+ * raw table a visible pivot summarises as they are scratch space — so they're
+ * converted like any other, and a reader who turns that off gets the skipped
+ * sheets *by name*, plus a coverage count in the frontmatter. Whatever is
+ * missing from the note is visible from the top of it.
  */
-export async function extractXlsx(data: Buffer, assets: AssetSink): Promise<ExtractResult> {
+export async function extractXlsx(
+  data: Buffer,
+  assets: AssetSink,
+  _ocr: OcrProvider,
+  options: ExtractOptions = DEFAULT_EXTRACT_OPTIONS
+): Promise<ExtractResult> {
   const zip = ZipArchive.open(data);
   const workbookXml = zip.text(WORKBOOK_PART);
   if (!workbookXml) throw new Error("not an Excel workbook (no xl/workbook.xml)");
 
-  const rels = readRelationships(zip, WORKBOOK_PART);
+  const workbook = parseXml(workbookXml);
   const sharedStrings = readSharedStrings(zip);
   const cellFormats = readCellFormats(zip);
+  const sheets = readSheetIndex(zip, workbook);
+
+  // Only worth working out when a hidden sheet is actually at risk of being
+  // dropped — with the default setting nothing is, so nothing is scanned.
+  const loadBearing =
+    options.includeHiddenSheets || !sheets.some((sheet) => sheet.hidden)
+      ? new Set<string>()
+      : loadBearingSheetNames(zip, workbook, sheets);
 
   const lines: string[] = [];
-  let hiddenSheets = 0;
-  let emptySheets = 0;
+  const skippedHidden: string[] = [];
+  const keptHidden: string[] = [];
+  const keptLoadBearing: string[] = [];
+  const emptySheets: string[] = [];
+  const unreadableSheets: string[] = [];
+  let converted = 0;
 
-  for (const sheet of descendants(parseXml(workbookXml), "sheet")) {
-    const name = sheet.getAttribute("name") ?? "Sheet";
-    const state = sheet.getAttribute("state");
-    if (state === "hidden" || state === "veryHidden") {
-      hiddenSheets++;
-      continue;
+  for (const sheet of sheets) {
+    // Which list a hidden sheet belongs in isn't settled until it turns out to
+    // have content: a hidden *and* empty sheet is reported as empty, not as
+    // one that was kept.
+    let keptDespiteHidden: string[] | null = null;
+    if (sheet.hidden) {
+      if (options.includeHiddenSheets) keptDespiteHidden = keptHidden;
+      else if (loadBearing.has(sheetKey(sheet.name))) keptDespiteHidden = keptLoadBearing;
+      else {
+        skippedHidden.push(sheet.name);
+        continue;
+      }
     }
 
-    const relId = sheet.getAttribute("r:id");
-    const rel = relId ? rels.get(relId) : undefined;
-    if (!rel || rel.external) continue;
-
-    const sheetPath = resolvePartPath(WORKBOOK_PART, rel.target);
-    const sheetXml = zip.text(sheetPath);
-    if (!sheetXml) continue;
+    const sheetXml = sheet.path ? zip.text(sheet.path) : null;
+    if (!sheet.path || sheetXml === null) {
+      unreadableSheets.push(sheet.name);
+      continue;
+    }
 
     const rows = readSheetRows(sheetXml, sharedStrings, cellFormats);
-    const embeds = await sheetImages(zip, sheetPath, assets);
+    const embeds = await sheetImages(zip, sheet.path, assets);
     if (rows.length === 0 && embeds.length === 0) {
-      emptySheets++;
+      emptySheets.push(sheet.name);
       continue;
     }
 
+    converted++;
+    keptDespiteHidden?.push(sheet.name);
     // Images float over the grid at pixel offsets rather than living in a
     // cell, so there's no row they belong to — they go after the table.
-    lines.push("", heading(2, name), "", ...table(rows), "", ...embeds.flatMap((embed) => [embed, ""]));
+    lines.push(
+      "",
+      heading(2, sheet.name),
+      "",
+      ...table(rows),
+      "",
+      ...embeds.flatMap((embed) => [embed, ""])
+    );
   }
 
   const warnings: string[] = [];
-  if (hiddenSheets > 0) {
-    warnings.push(`${hiddenSheets} hidden sheet${hiddenSheets === 1 ? "" : "s"} skipped.`);
+  // Named, not counted: "18 hidden sheets skipped" tells a reader nothing they
+  // can act on, while the names say whether the gap matters.
+  if (skippedHidden.length > 0) warnings.push(`Skipped (hidden): ${nameList(skippedHidden)}.`);
+  if (emptySheets.length > 0) warnings.push(`Skipped (empty): ${nameList(emptySheets)}.`);
+  if (unreadableSheets.length > 0) {
+    warnings.push(`Skipped (worksheet part missing from the file): ${nameList(unreadableSheets)}.`);
   }
-  if (emptySheets > 0) {
-    warnings.push(`${emptySheets} empty sheet${emptySheets === 1 ? "" : "s"} skipped.`);
+  if (keptLoadBearing.length > 0) {
+    warnings.push(
+      `Hidden but converted anyway, because a visible sheet, pivot table or chart reads from them: ${nameList(keptLoadBearing)}.`
+    );
+  }
+  if (keptHidden.length > 0) {
+    warnings.push(`Hidden in Excel, converted anyway: ${nameList(keptHidden)}.`);
   }
   warnings.push("Formulas are exported as their last-calculated values.");
 
-  return { markdown: joinBlocks(lines), warnings };
+  return {
+    markdown: joinBlocks(lines),
+    warnings,
+    frontmatter: { sheets_converted: `${converted}/${sheets.length}` },
+  };
+}
+
+interface SheetEntry {
+  name: string;
+  hidden: boolean;
+  /** Archive path of the worksheet part, or null if it can't be resolved. */
+  path: string | null;
+}
+
+/** Every sheet the workbook declares, in tab order, resolved to its part. */
+function readSheetIndex(zip: ZipArchive, workbook: Document): SheetEntry[] {
+  const rels = readRelationships(zip, WORKBOOK_PART);
+
+  return descendants(workbook, "sheet").map((sheet) => {
+    const state = sheet.getAttribute("state");
+    const relId = sheet.getAttribute("r:id");
+    const rel = relId ? rels.get(relId) : undefined;
+    const path = rel && !rel.external ? resolvePartPath(WORKBOOK_PART, rel.target) : null;
+
+    return {
+      name: sheet.getAttribute("name") ?? "Sheet",
+      hidden: state === "hidden" || state === "veryHidden",
+      path: path && zip.has(path) ? path : null,
+    };
+  });
+}
+
+function nameList(names: string[]): string {
+  return names.map(escapeInline).join(", ");
+}
+
+/** Excel compares sheet names case-insensitively, and so must any lookup. */
+function sheetKey(name: string): string {
+  return name.trim().toLowerCase();
+}
+
+const PIVOT_CACHE_PATTERN = /^xl\/pivotCache\/pivotCacheDefinition[^/]*\.xml$/;
+const CHART_PATTERN = /^xl\/charts\/chart[^/]*\.xml$/;
+const TABLE_REL_TYPE = "http://schemas.openxmlformats.org/officeDocument/2006/relationships/table";
+
+/**
+ * Hidden sheets that the visible ones depend on, as a set of `sheetKey`s.
+ *
+ * A hidden sheet that a visible formula, a pivot cache or a chart series reads
+ * from is load-bearing — that dependency is a far stronger signal about the
+ * data than the hidden flag is, so those sheets are converted even when hidden
+ * sheets are otherwise being left out. The set is deliberately over-inclusive:
+ * a name that resolves to nothing costs nothing, whereas a missing raw-data
+ * sheet silently guts the note.
+ */
+function loadBearingSheetNames(zip: ZipArchive, workbook: Document, sheets: SheetEntry[]): Set<string> {
+  const referenced = new Set<string>();
+  const named = namedSourceSheets(zip, workbook, sheets);
+  const record = (name: string) => {
+    referenced.add(name);
+    for (const target of named.get(name) ?? []) referenced.add(target);
+  };
+
+  for (const sheet of sheets) {
+    if (sheet.hidden || !sheet.path) continue;
+    const xml = zip.text(sheet.path);
+    if (xml) partSheetReferences(xml, "f").forEach(record);
+  }
+
+  for (const path of zip.paths()) {
+    // A chart keeps its series formulas in its own part, and a pivot table its
+    // source in a cache definition — neither is reachable from the sheet XML.
+    if (CHART_PATTERN.test(path)) {
+      const xml = zip.text(path);
+      if (xml) partSheetReferences(xml, "c:f").forEach(record);
+      continue;
+    }
+    if (!PIVOT_CACHE_PATTERN.test(path)) continue;
+
+    const cache = parsePart(zip, path);
+    if (!cache) continue;
+    for (const source of descendants(cache, "worksheetSource")) {
+      // Either a range on a named sheet, or a table / named range that has to
+      // be resolved back to the sheet holding it.
+      const sheet = source.getAttribute("sheet");
+      if (sheet) record(sheetKey(sheet));
+      const name = source.getAttribute("name");
+      if (name) record(sheetKey(name));
+    }
+  }
+
+  return referenced;
+}
+
+/**
+ * Sheets reachable through a name rather than a direct reference: workbook-wide
+ * named ranges, and the tables a pivot cache cites by table name.
+ */
+function namedSourceSheets(
+  zip: ZipArchive,
+  workbook: Document,
+  sheets: SheetEntry[]
+): Map<string, string[]> {
+  const sources = new Map<string, string[]>();
+
+  for (const definedName of descendants(workbook, "definedName")) {
+    const name = definedName.getAttribute("name");
+    // Sheet-scoped names and Excel's own built-ins (print areas, filter
+    // ranges) describe one sheet's layout rather than a dependency between
+    // sheets, so they'd make every hidden sheet look load-bearing.
+    if (!name || name.startsWith("_xlnm.") || definedName.getAttribute("localSheetId")) continue;
+    sources.set(sheetKey(name), sheetReferencesIn(definedName.textContent ?? ""));
+  }
+
+  for (const sheet of sheets) {
+    if (!sheet.path) continue;
+    for (const rel of readRelationships(zip, sheet.path).values()) {
+      if (rel.type !== TABLE_REL_TYPE || rel.external) continue;
+      const table = parsePart(zip, resolvePartPath(sheet.path, rel.target))?.documentElement;
+      const name = table?.getAttribute("displayName") ?? table?.getAttribute("name");
+      if (name) sources.set(sheetKey(name), [sheetKey(sheet.name)]);
+    }
+  }
+
+  return sources;
+}
+
+/**
+ * Sheet names referenced by the formulas in a part, read straight off the XML
+ * text rather than through the DOM: a worksheet part can hold tens of thousands
+ * of rows, and parsing one a second time purely to reach its `<f>` elements
+ * costs far more than the scan is worth.
+ */
+function partSheetReferences(xml: string, tag: string): string[] {
+  const pattern = new RegExp(`<${tag}(?:\\s[^>]*)?>([^<]*)</${tag}>`, "g");
+  const names: string[] = [];
+  for (const match of Array.from(xml.matchAll(pattern))) {
+    names.push(...sheetReferencesIn(decodeXmlText(match[1])));
+  }
+  return names;
+}
+
+/**
+ * The sheet name in front of every `!` in a formula. Quoted names hold the
+ * awkward ones (`'raw data (monthly)'!A1`), where an embedded apostrophe is
+ * doubled; unquoted ones stop at any character Excel won't allow in a bare
+ * name. References into another workbook (`[1]Sheet1!A1`) simply resolve to
+ * nothing here, which is the right outcome — they aren't sheets in this file.
+ */
+const SHEET_REFERENCE = /(?:'((?:[^']|'')*)'|([^\s'"!(),;+*/^&=<>%[\]{}-]+))!/g;
+
+function sheetReferencesIn(formula: string): string[] {
+  const names: string[] = [];
+  for (const match of Array.from(formula.matchAll(SHEET_REFERENCE))) {
+    const reference = match[1] !== undefined ? match[1].replace(/''/g, "'") : match[2];
+    // A 3-D reference spans a range of tabs — `Jan:Dec!B4` — and both endpoints
+    // name a real sheet. Splitting also picks up the harmless `A1:Sheet2` half
+    // of `Sheet1!A1:Sheet2!B2`.
+    for (const part of reference.split(":")) {
+      if (part !== "") names.push(sheetKey(part));
+    }
+  }
+  return names;
+}
+
+function decodeXmlText(text: string): string {
+  return text.replace(/&(#\d+|#x[0-9a-fA-F]+|amp|lt|gt|quot|apos);/g, (entity, code: string) => {
+    switch (code) {
+      case "amp":
+        return "&";
+      case "lt":
+        return "<";
+      case "gt":
+        return ">";
+      case "quot":
+        return '"';
+      case "apos":
+        return "'";
+      default:
+        return String.fromCodePoint(Number(code.replace("#x", "0x").replace("#", "")));
+    }
+  });
+}
+
+/** A part as a DOM, or null when it's absent or malformed. */
+function parsePart(zip: ZipArchive, path: string): Document | null {
+  const xml = zip.text(path);
+  if (!xml) return null;
+  try {
+    return parseXml(xml);
+  } catch {
+    return null;
+  }
 }
 
 const DRAWING_REL_TYPE = "http://schemas.openxmlformats.org/officeDocument/2006/relationships/drawing";

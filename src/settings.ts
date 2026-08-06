@@ -10,6 +10,8 @@ export interface ConvertToMarkdownSettings {
   extractImages: boolean;
   /** Vault folder holding the OCR engine files, or "" to download them. */
   ocrDataFolder: string;
+  /** Convert spreadsheet sheets Excel has marked hidden. */
+  includeHiddenSheets: boolean;
   /** Record the source file and conversion date in the note's frontmatter. */
   addFrontmatter: boolean;
   /** List anything the extractor dropped or guessed at the end of the note. */
@@ -23,6 +25,7 @@ export const DEFAULT_SETTINGS: ConvertToMarkdownSettings = {
   outputFolder: "Converted",
   extractImages: true,
   ocrDataFolder: "",
+  includeHiddenSheets: true,
   addFrontmatter: true,
   addConversionNotes: true,
   openAfterConvert: true,
@@ -76,6 +79,21 @@ export class ConvertToMarkdownSettingTab extends PluginSettingTab {
       .addToggle((toggle) =>
         toggle.setValue(this.plugin.settings.extractImages).onChange(async (value) => {
           this.plugin.settings.extractImages = value;
+          await this.plugin.saveSettings();
+        })
+      );
+
+    new Setting(containerEl)
+      .setName("Convert hidden sheets")
+      .setDesc(
+        "Spreadsheets only. A hidden sheet is often the raw data a visible pivot table summarises, " +
+          "so hidden sheets are converted like any other. Turn off to leave them out — they're then " +
+          "listed by name in the conversion notes, and any sheet a visible formula, pivot table or " +
+          "chart reads from is converted regardless."
+      )
+      .addToggle((toggle) =>
+        toggle.setValue(this.plugin.settings.includeHiddenSheets).onChange(async (value) => {
+          this.plugin.settings.includeHiddenSheets = value;
           await this.plugin.saveSettings();
         })
       );

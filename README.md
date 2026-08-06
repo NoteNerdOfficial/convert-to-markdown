@@ -39,8 +39,10 @@ immediately and offline.
 - Or run **Convert to Markdown: Convert a file** from the command palette
 
 The note is written next to the original (configurable), never overwriting an
-existing note. Anything the converter dropped — images, hidden sheets, pages
-with no text layer — is listed in a collapsed callout at the end.
+existing note. Anything the converter dropped — images, pages with no text
+layer, sheets you asked it to leave out — is named in a collapsed callout at
+the end, and a spreadsheet's coverage (`sheets_converted: 23/23`) goes in the
+frontmatter, where it's read before the content rather than after it.
 
 ## Compared to markitdown
 
@@ -75,7 +77,7 @@ Per format, what's read and what it buys:
 | --- | --- | --- |
 | `.docx` | `word/document.xml` paragraphs and `numbering.xml` | Real heading levels from Word's own styles; ordered vs. unordered lists; tables; hyperlinks; bold/italic |
 | `.pptx` | Slide parts in `p:sldIdLst` order | One section per slide in *presentation* order, title placeholders as headings, speaker notes, slide tables |
-| `.xlsx` | Worksheets, `sharedStrings.xml`, `styles.xml` | Dates instead of serial numbers, `27.38` instead of `27.383982300884924`, hidden helper sheets skipped |
+| `.xlsx` | Every worksheet, `sharedStrings.xml`, `styles.xml`, pivot caches | Dates instead of serial numbers, `27.38` instead of `27.383982300884924`, hidden sheets converted rather than dropped, coverage in the frontmatter |
 | `.pdf` | The text layer, via pdf.js | Columns read in order, headings from font size, paragraphs rejoined across line breaks, de-hyphenation, running headers/footers dropped |
 | `.png` `.jpg` `.webp` `.gif` `.bmp` `.tiff` | Local OCR (Tesseract) | Text off a screenshot or photo, laid out as paragraphs rather than one line per pixel row |
 
@@ -97,6 +99,24 @@ under 64px on a side are treated as rules, bullets and icons and skipped.
 
 Turn the whole thing off with **Extract images** in settings for text-only
 notes.
+
+## Spreadsheets
+
+Every sheet is converted, hidden ones included. Hiding a sheet is a
+presentation choice, not a statement about the data — the hidden sheets in a
+workbook are as often the raw table a visible pivot summarises as they are
+scratch space — so leaving them out silently guts the note. The frontmatter
+carries the count (`sheets_converted: 23/23`), so how much of the workbook
+made it across is the first thing you see rather than a footnote after two
+thousand lines.
+
+**Convert hidden sheets** in settings turns that off. When it's off, the
+skipped sheets are listed *by name* in the conversion notes — `Skipped
+(hidden): raw data (monthly), Region, Agebracket` — because a count alone
+tells you nothing you can act on. A hidden sheet that a visible sheet's
+formulas, a pivot cache or a chart series reads from is converted regardless
+of the setting: that dependency is a far stronger signal than the hidden flag,
+and it's reported too.
 
 ## OCR
 
@@ -180,7 +200,8 @@ OUT_DIR=/tmp/out node tools/convert.mjs ~/Downloads/deck.pptx ~/Downloads/report
 
 It shims the two DOM globals Obsidian gets from Electron and otherwise runs
 the real extractor code. `OCR_PROGRESS=1` prints the OCR stage reporting that
-the plugin puts in its notice.
+the plugin puts in its notice; `SKIP_HIDDEN_SHEETS=1` is the harness's stand-in
+for turning **Convert hidden sheets** off.
 
 ### Note on dependencies
 

@@ -1,6 +1,6 @@
 import { FuzzySuggestModal, Notice, Plugin, TAbstractFile, TFile, TFolder, normalizePath } from "obsidian";
 import { AssetSink, createAssetSink, NO_ASSETS } from "./assets";
-import { extractorFor, isSupported, SUPPORTED_EXTENSIONS } from "./extractors";
+import { ExtractResult, extractorFor, isSupported, SUPPORTED_EXTENSIONS } from "./extractors";
 import { CDN_OCR, CORE_FILE_PREFERENCE, LANGUAGE_FILE_NAMES, OcrProvider } from "./ocr";
 import { DEFAULT_SETTINGS, ConvertToMarkdownSettings, ConvertToMarkdownSettingTab } from "./settings";
 
@@ -57,12 +57,10 @@ export default class ConvertToMarkdownPlugin extends Plugin {
       const result = await extract(
         data,
         this.assetSink(folder, noteBasename),
-        this.ocrProvider(progressReporter(notice, file.name))
+        this.ocrProvider(progressReporter(notice, file.name)),
+        { includeHiddenSheets: this.settings.includeHiddenSheets }
       );
-      const note = await this.app.vault.create(
-        notePath,
-        this.composeNote(file, result.markdown, result.warnings)
-      );
+      const note = await this.app.vault.create(notePath, this.composeNote(file, result));
       notice.hide();
       new Notice(`Converted ${file.name} → ${note.basename}`);
 
@@ -77,7 +75,7 @@ export default class ConvertToMarkdownPlugin extends Plugin {
     }
   }
 
-  private composeNote(source: TFile, markdown: string, warnings: string[]): string {
+  private composeNote(source: TFile, result: ExtractResult): string {
     const sections: string[] = [];
 
     if (this.settings.addFrontmatter) {
@@ -87,15 +85,21 @@ export default class ConvertToMarkdownPlugin extends Plugin {
           `source: "[[${source.path}]]"`,
           `source_format: ${source.extension}`,
           `converted: ${window.moment().format("YYYY-MM-DD HH:mm")}`,
+          // How much of the source made it across, when the extractor can say
+          // — at the top of the note, where it's read before the content
+          // rather than after it.
+          ...Object.entries(result.frontmatter ?? {}).map(([key, value]) => `${key}: ${value}`),
           "---",
         ].join("\n")
       );
     }
 
-    sections.push(markdown.trim() === "" ? "*(no text content found)*" : markdown);
+    sections.push(result.markdown.trim() === "" ? "*(no text content found)*" : result.markdown);
 
-    if (this.settings.addConversionNotes && warnings.length > 0) {
-      sections.push(["> [!info]- Conversion notes", ...warnings.map((line) => `> - ${line}`)].join("\n"));
+    if (this.settings.addConversionNotes && result.warnings.length > 0) {
+      sections.push(
+        ["> [!info]- Conversion notes", ...result.warnings.map((line) => `> - ${line}`)].join("\n")
+      );
     }
 
     return `${sections.join("\n\n")}\n`;

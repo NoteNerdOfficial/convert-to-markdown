@@ -88,10 +88,13 @@ for (const file of files) {
       mkdirSync(assetDir, { recursive: true });
       writeFileSync(join(assetDir, assetName), data);
       return `![[${name} attachments/${assetName}]]`;
-    }), ocr);
+    }), ocr, { includeHiddenSheets: process.env.SKIP_HIDDEN_SHEETS !== "1" });
     const target = join(outDir, `${name}.md`);
     writeFileSync(target, result.markdown + "\n");
     console.error(`OK    ${file} → ${target} (${result.markdown.length} chars)`);
+    for (const [key, value] of Object.entries(result.frontmatter ?? {})) {
+      console.error(`      ${key}: ${value}`);
+    }
     for (const warning of result.warnings) console.error(`      note: ${warning}`);
   } catch (error) {
     console.error(`FAIL  ${file}: ${error.message}`);
