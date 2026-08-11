@@ -41,7 +41,10 @@ Supported: `.pdf` · `.docx` `.pptx` `.xlsx` (and `.docm` `.pptm` `.xlsm`) ·
 `.gif` `.bmp` `.tif` `.tiff`
 
 Pairs well with [Doc Preview](https://community.obsidian.md/plugins/doc-preview),
-also by this author.
+also by this author: it renders `.pptx`/`.docx`/`.xlsx` files in an Obsidian
+tab exactly as formatted, via a local LibreOffice install, so you can open the
+original beside the converted note — useful for checking a conversion, or for
+deciding whether one's even worth doing.
 
 ## Usage
 
