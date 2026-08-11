@@ -1,4 +1,4 @@
-import { App, PluginSettingTab, Setting, SettingDefinitionItem, normalizePath } from "obsidian";
+import { App, PluginSettingTab, Setting, normalizePath } from "obsidian";
 import type ConvertToMarkdownPlugin from "./main";
 
 export interface ConvertToMarkdownSettings {
@@ -37,132 +37,15 @@ export class ConvertToMarkdownSettingTab extends PluginSettingTab {
   }
 
   /**
-   * The declarative settings API, added in Obsidian 1.13.0: it's what gets
-   * this plugin's settings into Obsidian's own settings search, and it's
-   * what a review of this plugin flags `display()` below as deprecated in
-   * favour of. `display()` is kept anyway — this plugin's manifest targets
-   * 1.7.2, and an app that old has never heard of `getSettingDefinitions`,
-   * so it will call `display()` exactly as it always did. Obsidian only
-   * skips `display()` once this method returns a non-empty array, which
-   * only happens on a build new enough to have asked for it.
+   * Obsidian's newer declarative settings API (`getSettingDefinitions`) would
+   * get this tab into the app's own settings search, but it's only available
+   * since 1.13.0 — and this plugin's manifest targets 1.7.2, all the way back
+   * to when it only read PDFs. Implementing it anyway would mean the source
+   * referencing an API newer than the floor the manifest declares, which a
+   * plugin-store review flags regardless of whether the code guards it at
+   * runtime. Broad compatibility wins here, so this stays a plain
+   * `PluginSettingTab` until the floor moves.
    */
-  getSettingDefinitions(): SettingDefinitionItem[] {
-    return [
-      {
-        name: "Save converted notes",
-        desc: "Where to put the Markdown note.",
-        control: {
-          type: "dropdown",
-          key: "outputLocation",
-          options: { sameFolder: "Next to the original file", folder: "In a specific folder" },
-        },
-      },
-      {
-        name: "Output folder",
-        desc: "Vault-relative path. Created if it doesn't exist.",
-        visible: () => this.plugin.settings.outputLocation === "folder",
-        control: { type: "text", key: "outputFolder", placeholder: "Converted" },
-      },
-      {
-        name: "Extract images",
-        desc:
-          "Copy images out of the document into an attachments folder beside the note and embed them. " +
-          "Turn off for text-only notes.",
-        control: { type: "toggle", key: "extractImages" },
-      },
-      {
-        name: "Convert hidden sheets",
-        desc:
-          "Spreadsheets only (.xlsx and .ods). A hidden sheet is often the raw data a visible pivot table " +
-          "summarises, so hidden sheets are converted like any other. Turn off to leave them out — they're " +
-          "then listed by name in the conversion notes, and any sheet a visible formula, pivot table or " +
-          "chart reads from is converted regardless.",
-        control: { type: "toggle", key: "includeHiddenSheets" },
-      },
-      {
-        name: "Reading images (OCR)",
-        desc:
-          "Converting an image file — or a page of a scanned PDF, which is the same thing — runs local OCR. " +
-          "No API key, and the image never leaves your machine. By default the recognition engine and " +
-          "English training data (~9 MB) download on first use and are then cached; every conversion after " +
-          "that works offline.",
-      },
-      {
-        name: "OCR engine folder",
-        desc:
-          "For machines where the CDN is blocked. Put tesseract-core-simd-lstm.wasm.js and " +
-          "eng.traineddata in a vault folder and name it here, and OCR never touches the network. " +
-          "Leave empty to download them on first use. See the README for the two download links.",
-        control: { type: "text", key: "ocrDataFolder", placeholder: "(download on first use)" },
-      },
-      {
-        name: "Add frontmatter",
-        desc: "Record the source file and conversion date at the top of the note.",
-        control: { type: "toggle", key: "addFrontmatter" },
-      },
-      {
-        name: "Add conversion notes",
-        desc: "List what the converter skipped — images, hidden sheets, pages with no text layer.",
-        control: { type: "toggle", key: "addConversionNotes" },
-      },
-      {
-        name: "Open after converting",
-        control: { type: "toggle", key: "openAfterConvert" },
-      },
-    ];
-  }
-
-  /**
-   * Persists a control's new value and, for the two path settings, cleans it
-   * up the same way the old `onChange` handlers did — trimmed, defaulted,
-   * and run through `normalizePath` — before it reaches `this.plugin.settings`.
-   *
-   * `PluginSettingTab`'s own default would just assign the raw value, which
-   * is right for the toggles and the dropdown but wrong for a hand-typed
-   * path. `refreshDomState()` at the end is what makes **Output folder**
-   * appear the instant **Save converted notes** is switched to "In a
-   * specific folder", without a full re-render.
-   */
-  async setControlValue(key: string, value: unknown): Promise<void> {
-    const settings = this.plugin.settings;
-    const text = () => (typeof value === "string" ? value : "");
-
-    switch (key) {
-      case "outputLocation":
-        settings.outputLocation = value === "folder" ? "folder" : "sameFolder";
-        break;
-      case "outputFolder":
-        settings.outputFolder = normalizePath(text().trim() || "Converted");
-        break;
-      case "extractImages":
-        settings.extractImages = Boolean(value);
-        break;
-      case "includeHiddenSheets":
-        settings.includeHiddenSheets = Boolean(value);
-        break;
-      case "ocrDataFolder": {
-        const trimmed = text().trim();
-        settings.ocrDataFolder = trimmed === "" ? "" : normalizePath(trimmed);
-        break;
-      }
-      case "addFrontmatter":
-        settings.addFrontmatter = Boolean(value);
-        break;
-      case "addConversionNotes":
-        settings.addConversionNotes = Boolean(value);
-        break;
-      case "openAfterConvert":
-        settings.openAfterConvert = Boolean(value);
-        break;
-      default:
-        return;
-    }
-
-    await this.plugin.saveSettings();
-    this.refreshDomState();
-  }
-
-  /** @deprecated Kept only for Obsidian versions older than 1.13.0 — see {@link getSettingDefinitions}. */
   display(): void {
     const { containerEl } = this;
     containerEl.empty();
