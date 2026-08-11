@@ -40,6 +40,9 @@ Supported: `.pdf` · `.docx` `.pptx` `.xlsx` (and `.docm` `.pptm` `.xlsm`) ·
 `.ipynb` · `.vtt` `.srt` · `.csv` `.tsv` · `.png` `.jpg` `.jpeg` `.webp`
 `.gif` `.bmp` `.tif` `.tiff`
 
+Pairs well with [Doc Preview](https://community.obsidian.md/plugins/doc-preview),
+also by this author.
+
 ## Usage
 
 - Right-click a supported file in the file explorer → **Convert to Markdown**
