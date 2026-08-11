@@ -57,6 +57,14 @@ sheets you asked it to leave out, a page's navigation, an email attachment —
 is named in a collapsed callout at the end. Not counted: *named*, because
 "3 items skipped" tells you nothing you can act on.
 
+The frontmatter's `source` field links back to the original as a bare-filename
+wikilink (`[[report.docx]]`) rather than its full path, for the same reason
+the images are: Obsidian resolves it by searching the vault each time, so the
+source file can be moved anywhere afterward without the link breaking. That
+only holds while the filename is unique — if another file elsewhere in the
+vault happens to share it, the full path is used instead, since a bare link
+would otherwise point at whichever one Obsidian happened to pick.
+
 Coverage goes in the frontmatter, where it's read before the content rather
 than after two thousand lines of it:
 
@@ -141,13 +149,15 @@ Lucern Hotel, just down the street from the American Museum of Natural History.
 **00:15 Neil deGrasse Tyson:** Didn't we talk about enough in that conversation?
 ```
 
-Speakers are read from all three conventions that mark them, because a real
-file uses whichever its tooling produced: WebVTT's `<v Name>`, broadcast
-captioning's `>>` and `>> NAME:`, and the subtitling convention of a dash at
-the start of each speaker's line. The last two have to be understood anyway —
+Speakers are read from every convention a real transcript turns up with:
+WebVTT's `<v Name>`, broadcast captioning's `>>` and `>> NAME:`, the
+subtitling convention of a dash at the start of each speaker's line, and
+Webex's own export, which names the speaker on a quoted line of its own —
+`"Priya Rao" (100000002)` — just ahead of the timing line rather than
+inside the cue text. The dash and the chevrons have to be understood anyway —
 `>` and `-` at the start of a line are a blockquote and a list item in
-Markdown, so leaving them in would corrupt the note even if you didn't want the
-speaker names.
+Markdown, so leaving them in would corrupt the note even if you didn't want
+the speaker names.
 
 Auto-generated captions get one extra repair. YouTube's scroll rather than cut:
 each cue restates the previous cue's last line and adds one new one, so the same
@@ -164,6 +174,16 @@ attachments/` beside the note, and embedded where they actually sat — a figure
 inside a Word table cell comes out inside that table cell. Identical images are
 written once no matter how many times they're used, so a logo on forty slides
 is one file.
+
+Each one is named with a short hash of its own bytes (`image-1-a3f9c2b7.png`),
+and embedded by that bare filename rather than its full path. That's what lets
+the attachments folder be moved anywhere else in the vault — by Obsidian's
+file explorer, a sync tool, or dragged around in Finder — without breaking the
+embed: Obsidian finds a bare-filename embed by searching the vault each time
+it renders the note, rather than trusting a path stored at conversion time.
+The hash is what makes that safe to do at all — a plain `image-1.png` would
+collide the moment two different notes had a first image, and Obsidian would
+have no way to know which one a bare link meant.
 
 Word, PowerPoint and Excel store images in their original encoding, so those
 come out untouched (`.jpeg` stays `.jpeg`). A PDF doesn't store files at all —

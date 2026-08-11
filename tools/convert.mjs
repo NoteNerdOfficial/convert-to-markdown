@@ -101,10 +101,13 @@ for (const file of files) {
       },
     };
 
+    // Bare filename, matching the plugin's own assetSink: createAssetSink
+    // already makes assetName vault-unique (it's hash-suffixed), so this is
+    // what a real note gets, not a harness-only shortcut.
     const result = await extract(readFileSync(file), createAssetSink(async (data, assetName) => {
       mkdirSync(assetDir, { recursive: true });
       writeFileSync(join(assetDir, assetName), data);
-      return `![[${name} attachments/${assetName}]]`;
+      return `![[${assetName}]]`;
     }), ocr, { includeHiddenSheets: process.env.SKIP_HIDDEN_SHEETS !== "1" });
     const target = join(outDir, `${name}.md`);
     writeFileSync(target, result.markdown + "\n");

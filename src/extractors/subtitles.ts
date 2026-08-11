@@ -277,8 +277,16 @@ function parseTrack(source: string): Track {
       continue;
     }
 
+    // Webex writes the speaker on its own line ahead of the timing line —
+    // `"Priya Rao" (100000002)` — rather than inside the cue text the way
+    // `<v>`, `>>` and a dialogue dash do. It's cue-level, not line-level: one
+    // Webex cue is always one speaker, so it applies to everything the cue
+    // says, and only fills in where the cue text didn't already name someone
+    // some other way.
+    const cueSpeaker = webexSpeaker(lines.slice(0, timingIndex));
+
     for (const turn of readCueText(lines.slice(timingIndex + 1))) {
-      track.turns.push({ start: timing.start, end: timing.end, ...turn });
+      track.turns.push({ start: timing.start, end: timing.end, ...turn, speaker: turn.speaker ?? cueSpeaker });
     }
   }
 
@@ -389,6 +397,26 @@ function readCueText(lines: string[]): { speaker: string | null; forced: boolean
   return turns
     .map((turn) => ({ speaker: turn.speaker, forced: turn.forced, text: renderSpans(turn.runs) }))
     .filter((turn) => turn.text !== "");
+}
+
+/**
+ * Webex's speaker line — `"Priya Rao" (100000002)` — from the lines a cue
+ * carries ahead of its timing line.
+ *
+ * Standard WebVTT allows one optional cue identifier there, usually the plain
+ * numeral a captioning tool numbers cues with; Webex's own export puts a
+ * second line after it naming who's speaking, quoted name and a numeric
+ * participant id. The quotes are what make it unambiguous — nothing else
+ * legitimately shows up ahead of a timing line quoted like that — so this
+ * doesn't need to guess, only recognise a fixed shape.
+ */
+function webexSpeaker(precedingLines: string[]): string | null {
+  for (const line of precedingLines) {
+    const match = /^"([^"]*)"\s*\(\d+\)\s*$/.exec(line.trim());
+    const name = match ? squashSpaces(match[1]) : "";
+    if (name !== "") return name;
+  }
+  return null;
 }
 
 function readTurnMarker(line: string): { speaker: string | null; rest: string } | null {

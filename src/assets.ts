@@ -34,6 +34,18 @@ export const NO_ASSETS: AssetSink = {
  * Wraps a writer with content-addressed deduplication. A deck puts the same
  * logo on all forty slides and Word stores a repeated figure once per
  * reference; without this, a conversion writes forty copies of it.
+ *
+ * The hash suffix on the filename (`image-1-a3f9c2b7.png`, not `image-1.png`)
+ * is what lets the caller embed by bare filename — `![[image-1-a3f9c2b7.png]]`
+ * rather than a full vault path. A bare-filename embed is resolved by
+ * Obsidian searching the whole vault for that name every time it's rendered,
+ * which is what makes it survive the attachments folder being moved, even
+ * outside Obsidian's own move-tracking — but only as long as the name is
+ * unique across the vault. `image-1.png` on its own is anything but: every
+ * note this plugin has ever produced starts counting from 1. The hash — the
+ * same one already computed here for dedup — is free uniqueness, since two
+ * different images landing on the same 8 hex characters is astronomically
+ * unlikely for any vault a person could actually assemble.
  */
 export function createAssetSink(write: (data: Buffer, name: string) => Promise<string>): AssetSink {
   const embedByHash = new Map<string, string>();
@@ -46,7 +58,7 @@ export function createAssetSink(write: (data: Buffer, name: string) => Promise<s
       const existing = embedByHash.get(hash);
       if (existing !== undefined) return existing;
 
-      const embed = await write(data, `image-${++counter}.${extension}`);
+      const embed = await write(data, `image-${++counter}-${hash.slice(0, 8)}.${extension}`);
       embedByHash.set(hash, embed);
       return embed;
     },

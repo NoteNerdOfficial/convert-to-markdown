@@ -1,6 +1,7 @@
 import { FuzzySuggestModal, Notice, Plugin, TAbstractFile, TFile, TFolder, normalizePath } from "obsidian";
 import { AssetSink, createAssetSink, NO_ASSETS } from "./assets";
 import { ExtractResult, extractorFor, isSupported, SUPPORTED_EXTENSIONS } from "./extractors";
+import { yamlValue } from "./markdown";
 import { CDN_OCR, CORE_FILE_PREFERENCE, LANGUAGE_FILE_NAMES, OcrProvider } from "./ocr";
 import { DEFAULT_SETTINGS, ConvertToMarkdownSettings, ConvertToMarkdownSettingTab } from "./settings";
 
@@ -82,7 +83,7 @@ export default class ConvertToMarkdownPlugin extends Plugin {
       sections.push(
         [
           "---",
-          `source: "[[${source.path}]]"`,
+          `source: ${yamlValue(`[[${this.sourceLink(source)}]]`)}`,
           `source_format: ${source.extension}`,
           `converted: ${window.moment().format("YYYY-MM-DD HH:mm")}`,
           // How much of the source made it across, when the extractor can say
@@ -103,6 +104,26 @@ export default class ConvertToMarkdownPlugin extends Plugin {
     }
 
     return `${sections.join("\n\n")}\n`;
+  }
+
+  /**
+   * The wikilink target for the source file — its bare filename where that's
+   * safe, its full vault path where it isn't.
+   *
+   * A bare-filename link (`[[report.docx]]`) is resolved by Obsidian
+   * searching the whole vault by name each time it's rendered, so it keeps
+   * pointing at the file no matter how it's moved afterward — including a
+   * move made outside Obsidian entirely, which nothing in Obsidian's own
+   * link-updating can see. Unlike the images this plugin writes, though, the
+   * source file's name isn't ours to choose — nothing stops two different
+   * documents elsewhere in the vault from sharing a filename, and a bare link
+   * would then resolve to whichever one Obsidian happens to pick. The full
+   * path is unambiguous in that case, at the cost of being the kind of link
+   * that only updates itself when Obsidian is the one doing the moving.
+   */
+  private sourceLink(source: TFile): string {
+    const collides = this.app.vault.getFiles().some((file) => file !== source && file.name === source.name);
+    return collides ? source.path : source.name;
   }
 
   /**
@@ -146,7 +167,15 @@ export default class ConvertToMarkdownPlugin extends Plugin {
    * Writes extracted images into `<note name> attachments/` beside the note.
    *
    * The folder is created on the first image rather than up front, so a
-   * document with no images doesn't leave an empty folder behind.
+   * document with no images doesn't leave an empty folder behind. The file
+   * itself is still written at that full path — only the *embed* is bare
+   * (`![[name]]` rather than `![[folder/name]]`), so that moving the
+   * attachments folder anywhere else in the vault, by any means, doesn't
+   * break the link: Obsidian re-finds a bare-filename embed by searching the
+   * vault each time it's rendered, rather than trusting a stored path. That
+   * only works because `createAssetSink` gives every image a hash-suffixed,
+   * vault-unique name — a bare `![[image-1.png]]` would be ambiguous the
+   * moment two converted notes existed.
    */
   private assetSink(folder: string, noteBasename: string): AssetSink {
     if (!this.settings.extractImages) return NO_ASSETS;
@@ -166,7 +195,7 @@ export default class ConvertToMarkdownPlugin extends Plugin {
       // createBinary wants a plain ArrayBuffer; a Buffer is a view into a
       // pooled one, so hand over a copy of just this image's bytes.
       await this.app.vault.createBinary(path, data.buffer.slice(data.byteOffset, data.byteOffset + data.length) as ArrayBuffer);
-      return `![[${path}]]`;
+      return `![[${name}]]`;
     });
   }
 
