@@ -67,6 +67,48 @@ export function joinBlocks(lines: string[]): string {
   return out.join("\n");
 }
 
+/**
+ * The text of the first heading, if the content opens with one.
+ *
+ * Three formats name a document twice — an email's `Subject` and the `<h1>` of
+ * its HTML body, a page's `<title>` and its own headline, an epub's contents
+ * entry and the chapter's own heading. Each of those names is worth adding
+ * when the content doesn't already carry it, and is a duplicate when it does.
+ */
+export function openingHeading(lines: string[]): string | null {
+  const first = lines.find((line) => line.trim() !== "");
+  if (first === undefined || !/^#{1,6}\s/.test(first)) return null;
+  // Comparison is against a plain string, so the Markdown the heading picked
+  // up on the way in has to come back off.
+  return first
+    .replace(/^#+\s*/, "")
+    .replace(/\\([\\`*_[\]{}<>])/g, "$1")
+    .replace(/[*_`]/g, "")
+    .trim();
+}
+
+/** Whether content already opens with a heading naming it. */
+export function alreadyTitled(lines: string[], title: string): boolean {
+  const heading = openingHeading(lines);
+  return heading !== null && heading.toLowerCase() === title.trim().toLowerCase();
+}
+
+/**
+ * A frontmatter value that survives being read back as YAML.
+ *
+ * Coverage counts like `23/23` need nothing, but the moment a value is text
+ * out of the source file — an email subject, a speaker's name, an epub's
+ * author — it can contain a colon, a `#`, or a leading `-`, any of which turns
+ * the line into something other than the string that was meant.
+ */
+export function yamlValue(text: string): string {
+  const value = text.replace(/[\r\n]+/g, " ").trim();
+  if (value === "") return '""';
+  if (/^[A-Za-z0-9][A-Za-z0-9 ._/@+()–—-]*[A-Za-z0-9._/@+()]$/.test(value)) return value;
+  if (/^[A-Za-z0-9]$/.test(value)) return value;
+  return `"${value.replace(/\\/g, "\\\\").replace(/"/g, '\\"')}"`;
+}
+
 /** Normalises whitespace inside a text run without touching line structure. */
 export function squashSpaces(text: string): string {
   return text.replace(/[ \t ]+/g, " ").trim();

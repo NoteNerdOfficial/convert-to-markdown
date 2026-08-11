@@ -66,6 +66,31 @@ export function droppedImagesWarning(count: number, extractionEnabled: boolean):
 }
 
 /**
+ * Image MIME types Obsidian can render, and the extension to write them under.
+ *
+ * The formats that arrive by MIME type rather than by filename — a `data:`
+ * URI, an email's inline image, a part of a saved web page — have no path to
+ * take an extension from, and Obsidian decides how to display an embed by its
+ * extension. Anything not on this list can't be shown, so writing it into the
+ * vault would only leave a broken embed behind.
+ */
+const IMAGE_MIME_EXTENSIONS: Record<string, string> = {
+  "image/png": "png",
+  "image/jpeg": "jpg",
+  "image/jpg": "jpg",
+  "image/gif": "gif",
+  "image/webp": "webp",
+  "image/bmp": "bmp",
+  "image/tiff": "tiff",
+  "image/svg+xml": "svg",
+  "image/avif": "avif",
+};
+
+export function imageExtensionForMime(mime: string): string | null {
+  return IMAGE_MIME_EXTENSIONS[mime.trim().toLowerCase().split(";")[0]] ?? null;
+}
+
+/**
  * File extension for an image part, taken from its own path. OOXML stores
  * images in their original encoding, so the archive's extension is the real
  * one — no sniffing needed.

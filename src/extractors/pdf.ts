@@ -1,8 +1,10 @@
 import * as pdfjsLib from "pdfjs-dist";
-import type { PDFPageProxy, TextItem } from "pdfjs-dist/types/src/display/api";
+import type { PDFDocumentProxy, PDFPageProxy, TextItem } from "pdfjs-dist/types/src/display/api";
 import { AssetSink } from "../assets";
 import { bullet, escapeInline, heading, joinBlocks, squashSpaces } from "../markdown";
+import { CDN_OCR, OcrProvider } from "../ocr";
 import { encodePng } from "../png";
+import { forPage, recognize, Recognition } from "../recognize";
 import { ExtractResult } from "./types";
 
 // pdfjs-dist's worker script, inlined at build time by esbuild (see
@@ -33,11 +35,19 @@ function ensureWorker(): void {
  * `pdftotext -layout` takes, and it's fully deterministic — the same file
  * always produces the same Markdown.
  *
- * The one thing geometry can't do is read a scan. A PDF that is just page
- * images has no text layer at all, and that case is reported rather than
- * silently returning an empty note.
+ * The one thing geometry can't do is read a scan. A page that is only an image
+ * has no glyphs to position, so those pages — and only those — go through OCR
+ * instead, the same recogniser the image extractor uses. That keeps the
+ * distinction honest: a PDF with a text layer is still parsed exactly and
+ * deterministically, and the statistical path is used only where there is no
+ * alternative to it. Which pages were read that way is reported, because they
+ * are the pages that can be wrong.
  */
-export async function extractPdf(data: Buffer, assets: AssetSink): Promise<ExtractResult> {
+export async function extractPdf(
+  data: Buffer,
+  assets: AssetSink,
+  ocr: OcrProvider = CDN_OCR
+): Promise<ExtractResult> {
   ensureWorker();
 
   const document = await pdfjsLib.getDocument({
@@ -54,21 +64,36 @@ export async function extractPdf(data: Buffer, assets: AssetSink): Promise<Extra
   try {
     const pageRows: PositionedItem[][][] = [];
     const pageImages: string[][] = [];
+    /** Pages with no glyphs at all — a scan, or an image-only export. */
+    const imageOnly: number[] = [];
     let skippedImages = 0;
 
     for (let pageNumber = 1; pageNumber <= document.numPages; pageNumber++) {
       const page = await document.getPage(pageNumber);
       try {
         const content = await page.getTextContent();
-        pageRows.push(groupRows(positionItems(content.items.filter(isTextItem))));
+        const positioned = positionItems(content.items.filter(isTextItem));
+        pageRows.push(groupRows(positioned));
 
-        const extracted = await extractPageImages(page, assets);
-        pageImages.push(extracted.embeds);
-        skippedImages += extracted.skipped;
+        if (positioned.length === 0) {
+          // The page is a picture of a page. Its images aren't figures to
+          // embed alongside the text — they *are* the text, and embedding a
+          // full-page scan of every page would bury the note it produces. They
+          // go to the recogniser in a second pass instead, so that only the
+          // pages that need it pay for holding a raster in memory.
+          imageOnly.push(pageNumber);
+          pageImages.push([]);
+        } else {
+          const extracted = await extractPageImages(page, assets);
+          pageImages.push(extracted.embeds);
+          skippedImages += extracted.skipped;
+        }
       } finally {
         page.cleanup();
       }
     }
+
+    const scanned = await readScannedPages(document, imageOnly, ocr);
 
     // Running headers and footers are found on the naive full-width rows and
     // dropped before columns are worked out. A three-part footer spread along
@@ -79,9 +104,9 @@ export async function extractPdf(data: Buffer, assets: AssetSink): Promise<Extra
     const pages = pageRows.map((rows) => buildPage(withoutFurniture(rows, repeated)));
 
     const allLines = pages.flat();
-    if (allLines.length === 0) {
+    if (allLines.length === 0 && scanned.size === 0) {
       throw new Error(
-        "this PDF has no text layer — it's a scan or an image-only export, which needs OCR rather than extraction"
+        "this PDF has no text at all — no text layer, and no page image that OCR could read either"
       );
     }
 
@@ -90,6 +115,10 @@ export async function extractPdf(data: Buffer, assets: AssetSink): Promise<Extra
 
     const lines: string[] = [];
     pages.forEach((pageLines, index) => {
+      const recognised = scanned.get(index + 1);
+      if (recognised) {
+        for (const paragraph of recognised.paragraphs) lines.push("", escapeInline(paragraph), "");
+      }
       lines.push(...renderPage(pageLines, bodySize, bodyWidth));
       // A PDF's drawing operations don't interleave with its text in reading
       // order, so there's no honest position for a figure within the page —
@@ -99,27 +128,171 @@ export async function extractPdf(data: Buffer, assets: AssetSink): Promise<Extra
 
     return {
       markdown: joinBlocks(lines),
-      warnings: pdfWarnings(document.numPages, pages, skippedImages),
+      warnings: pdfWarnings(document.numPages, pages, scanned, skippedImages),
+      frontmatter: coverageOf(document.numPages, pages, scanned),
     };
   } finally {
     await document.destroy();
   }
 }
 
-function pdfWarnings(pageCount: number, pages: Line[][], skippedImages: number): string[] {
-  const blankPages = pages.filter((page) => page.length === 0).length;
+/**
+ * How much of the document made it across, at the top of the note rather than
+ * in a footnote after two thousand lines. A page that produced nothing at all
+ * is the thing a reader most needs to know about before reading the rest.
+ */
+function coverageOf(pageCount: number, pages: Line[][], scanned: Map<number, Recognition>): Record<string, string> {
+  const converted = pages.filter((page, index) => page.length > 0 || hasText(scanned.get(index + 1))).length;
+  const frontmatter: Record<string, string> = { pages_converted: `${converted}/${pageCount}` };
+  if (scanned.size > 0) frontmatter.pages_read_by_ocr = String([...scanned.values()].filter(hasText).length);
+  return frontmatter;
+}
+
+function hasText(recognition: Recognition | undefined): boolean {
+  return recognition !== undefined && recognition.paragraphs.length > 0;
+}
+
+function pdfWarnings(
+  pageCount: number,
+  pages: Line[][],
+  scanned: Map<number, Recognition>,
+  skippedImages: number
+): string[] {
   const warnings = ["Vector graphics and charts drawn as line art are not extracted."];
+
   if (skippedImages > 0) {
     warnings.push(
       `${skippedImages} image${skippedImages === 1 ? "" : "s"} skipped (too small to be content, or an unsupported colour format).`
     );
   }
-  if (blankPages > 0) {
+
+  const read = [...scanned.entries()].filter(([, recognition]) => hasText(recognition));
+  if (read.length > 0) {
+    const confidences = read.map(([, recognition]) => recognition.confidence);
+    const lowest = Math.round(Math.min(...confidences));
     warnings.push(
-      `${blankPages} of ${pageCount} pages had no text layer (likely scanned) and produced nothing.`
+      `${read.length} page${read.length === 1 ? "" : "s"} had no text layer and ${
+        read.length === 1 ? "was" : "were"
+      } read by OCR instead (${listPages(read.map(([page]) => page))}). That part of the note is a recognition ` +
+        `rather than an extraction and can be wrong — lowest confidence was ${lowest}%.`
+    );
+
+    const discarded = read.reduce((total, [, recognition]) => total + recognition.discarded, 0);
+    if (discarded > 0) {
+      warnings.push(
+        `${discarded} region${discarded === 1 ? "" : "s"} on those pages were too unclear to read and were ` +
+          "dropped rather than guessed at."
+      );
+    }
+  }
+
+  // Named, not counted: which pages came out empty is what makes it possible
+  // to go back to the original and see what was on them.
+  const blank = pages
+    .map((page, index) => (page.length === 0 && !hasText(scanned.get(index + 1)) ? index + 1 : 0))
+    .filter((page) => page > 0);
+  if (blank.length > 0) {
+    warnings.push(
+      `${blank.length} of ${pageCount} pages produced nothing — no text layer, and nothing OCR could read ` +
+        `(${listPages(blank)}). They may be blank, or artwork with no lettering.`
     );
   }
+
   return warnings;
+}
+
+function listPages(pages: number[]): string {
+  const shown = pages.slice(0, 12).join(", ");
+  return pages.length > 12 ? `pages ${shown}, …` : `page${pages.length === 1 ? "" : "s"} ${shown}`;
+}
+
+/**
+ * Reads the pages that have no text layer.
+ *
+ * A scanned page is a single image painted across the whole page, so the image
+ * is the page — there is nothing to rasterise and no canvas needed. Pulling
+ * the image straight out of the PDF also means this behaves identically in
+ * Obsidian and in the Node harness, which is the same reason PDF figures are
+ * re-encoded with the hand-rolled PNG writer rather than through a canvas.
+ *
+ * Done as a second pass over just these pages: a two-hundred-page scan would
+ * otherwise mean holding two hundred full-page rasters while the first pass
+ * finished.
+ */
+async function readScannedPages(
+  document: PDFDocumentProxy,
+  pageNumbers: number[],
+  ocr: OcrProvider
+): Promise<Map<number, Recognition>> {
+  const results = new Map<number, Recognition>();
+
+  for (const [index, pageNumber] of pageNumbers.entries()) {
+    const page = await document.getPage(pageNumber);
+    try {
+      const rasters = await pageRasters(page);
+      if (rasters.length === 0) continue;
+
+      const recognitions: Recognition[] = [];
+      for (const raster of rasters) {
+        recognitions.push(await recognize(raster, forPage(ocr, index + 1, pageNumbers.length)));
+      }
+
+      // A page split into horizontal strips by the scanner is several images
+      // in reading order; merging them keeps the page one page.
+      results.set(pageNumber, {
+        paragraphs: recognitions.flatMap((recognition) => recognition.paragraphs),
+        confidence: Math.min(...recognitions.map((recognition) => recognition.confidence)),
+        discarded: recognitions.reduce((total, recognition) => total + recognition.discarded, 0),
+      });
+    } catch {
+      // One unreadable page shouldn't cost the other hundred; it is reported
+      // as producing nothing, which is what happened.
+    } finally {
+      page.cleanup();
+    }
+  }
+
+  return results;
+}
+
+/**
+ * The images on a page, largest first, as PNG.
+ *
+ * Bilevel images are included here and nowhere else. A 1-bit image is normally
+ * a stencil mask and never worth embedding, but a fax-style scan — CCITT G4,
+ * the most common thing in a scanned archive — is bilevel by definition, and
+ * refusing it would mean refusing exactly the documents this path exists for.
+ */
+async function pageRasters(page: PDFPageProxy): Promise<Buffer[]> {
+  let operatorList;
+  try {
+    operatorList = await page.getOperatorList();
+  } catch {
+    return [];
+  }
+
+  const { OPS } = pdfjsLib;
+  const seen = new Set<string>();
+  const found: { png: Buffer; area: number }[] = [];
+
+  for (let i = 0; i < operatorList.fnArray.length; i++) {
+    if (operatorList.fnArray[i] !== OPS.paintImageXObject) continue;
+
+    const objId = operatorList.argsArray[i]?.[0];
+    if (typeof objId !== "string" || seen.has(objId)) continue;
+    seen.add(objId);
+
+    const image = await awaitImage(page, objId);
+    const png = toPng(image, { allowBilevel: true });
+    if (png && image) found.push({ png, area: image.width * image.height });
+  }
+
+  // Largest first, so a page with a logo in the corner recognises the scan
+  // before the logo. Anything much smaller than the biggest image is
+  // decoration rather than another strip of the page.
+  found.sort((a, b) => b.area - a.area);
+  const largest = found[0]?.area ?? 0;
+  return found.filter((image) => image.area >= largest * 0.2).map((image) => image.png);
 }
 
 /**
@@ -162,11 +335,7 @@ async function extractPageImages(
     if (typeof objId !== "string" || seen.has(objId)) continue;
     seen.add(objId);
 
-    // `g_`-prefixed ids are shared across pages and live on the document.
-    const store = objId.startsWith("g_") ? page.commonObjs : page.objs;
-    if (!store.has(objId)) continue;
-
-    const png = toPng(store.get(objId));
+    const png = toPng(await awaitImage(page, objId));
     if (!png) {
       skipped++;
       continue;
@@ -187,6 +356,47 @@ interface DecodedImage {
   data: Uint8Array | null;
 }
 
+/** Long enough for a large image to be decoded, short enough not to hang. */
+const IMAGE_WAIT_MS = 20000;
+
+/**
+ * Fetches a decoded image, waiting for it if it hasn't arrived yet.
+ *
+ * pdf.js decodes images in its worker and pushes them across asynchronously,
+ * so an image referenced by the operator list is very often not in the object
+ * store at the moment the list resolves — the operator list contains an
+ * explicit `dependency` entry saying exactly that, and a renderer is expected
+ * to wait. Which images have arrived by then depends on the encoding: a JPEG
+ * passes straight through and is usually ready, while anything pdf.js has to
+ * decode itself is usually not.
+ *
+ * Checking `has()` and moving on therefore drops images by codec — and drops
+ * them silently, since nothing is left to count.
+ */
+function awaitImage(page: PDFPageProxy, objId: string): Promise<DecodedImage | undefined> {
+  // `g_`-prefixed ids are shared across pages and live on the document.
+  const store = objId.startsWith("g_") ? page.commonObjs : page.objs;
+
+  return new Promise((resolve) => {
+    let settled = false;
+    const finish = (image: DecodedImage | undefined) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      resolve(image);
+    };
+    const timer = setTimeout(() => finish(undefined), IMAGE_WAIT_MS);
+
+    try {
+      if (store.has(objId)) finish(store.get(objId) as DecodedImage);
+      else store.get(objId, (image: unknown) => finish(image as DecodedImage));
+    } catch {
+      // An id the worker never sent at all.
+      finish(undefined);
+    }
+  });
+}
+
 /**
  * Converts a pdf.js image object to PNG bytes, or null if it isn't a picture
  * worth keeping.
@@ -195,12 +405,12 @@ interface DecodedImage {
  * almost always a stencil mask — the shape used to clip another image or to
  * paint a solid colour through — rather than an image anyone wants in a note.
  */
-function toPng(image: DecodedImage | undefined): Buffer | null {
+function toPng(image: DecodedImage | undefined, options: { allowBilevel?: boolean } = {}): Buffer | null {
   if (!image?.data) return null;
   const { width, height, kind, data } = image;
   if (width < MIN_IMAGE_SIDE || height < MIN_IMAGE_SIDE) return null;
 
-  const { RGB_24BPP, RGBA_32BPP } = pdfjsLib.ImageKind;
+  const { GRAYSCALE_1BPP, RGB_24BPP, RGBA_32BPP } = pdfjsLib.ImageKind;
 
   if (kind === RGBA_32BPP) {
     if (data.length < width * height * 4) return null;
@@ -219,7 +429,39 @@ function toPng(image: DecodedImage | undefined): Buffer | null {
     return encodePng(width, height, rgba);
   }
 
+  if (kind === GRAYSCALE_1BPP && options.allowBilevel) {
+    return bilevelToPng(width, height, data);
+  }
+
   return null;
+}
+
+/**
+ * Expands a 1-bit image to RGBA.
+ *
+ * Rows are packed to whole bytes and padded at the end, so the row stride has
+ * to be computed rather than derived from the width. A set bit is white, which
+ * is pdf.js's convention for this kind and the opposite of what "1 bit set"
+ * suggests.
+ */
+function bilevelToPng(width: number, height: number, data: Uint8Array): Buffer | null {
+  const stride = (width + 7) >> 3;
+  if (data.length < stride * height) return null;
+
+  const rgba = new Uint8Array(width * height * 4);
+  let target = 0;
+  for (let row = 0; row < height; row++) {
+    const rowStart = row * stride;
+    for (let column = 0; column < width; column++) {
+      const bit = (data[rowStart + (column >> 3)] >> (7 - (column & 7))) & 1;
+      const value = bit ? 0xff : 0x00;
+      rgba[target++] = value;
+      rgba[target++] = value;
+      rgba[target++] = value;
+      rgba[target++] = 0xff;
+    }
+  }
+  return encodePng(width, height, rgba);
 }
 
 /** Rows this far from the top or bottom of a page can be page furniture. */

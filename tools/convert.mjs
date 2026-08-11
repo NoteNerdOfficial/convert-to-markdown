@@ -11,7 +11,8 @@ import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { basename, extname, join } from "node:path";
 import { pathToFileURL } from "node:url";
 import esbuild from "esbuild";
-import { DOMParser } from "@xmldom/xmldom";
+import { DOMParser as XmlDomParser } from "@xmldom/xmldom";
+import { DOMParser as HtmlDomParser } from "linkedom";
 
 const files = process.argv.slice(2);
 if (files.length === 0) {
@@ -19,7 +20,17 @@ if (files.length === 0) {
   process.exit(1);
 }
 
-globalThis.DOMParser = DOMParser;
+// Obsidian's DOMParser handles both XML and HTML; Node has neither, and no
+// single package here does both well. xmldom is the closer match for OOXML and
+// XHTML parts, and linkedom is the only one that will parse real-world HTML —
+// tag soup with unclosed <p> and bare <img> — the way a browser does.
+globalThis.DOMParser = class {
+  parseFromString(source, type) {
+    return type === "text/html"
+      ? new HtmlDomParser().parseFromString(source, "text/html")
+      : new XmlDomParser().parseFromString(source, type);
+  }
+};
 // pdf.js uses Promise.withResolvers, which Obsidian's Electron has but Node
 // only gained in 22.
 if (typeof Promise.withResolvers !== "function") {
@@ -102,7 +113,7 @@ for (const file of files) {
 }
 
 function patchXmldom() {
-  const document = new DOMParser().parseFromString("<r/>", "application/xml");
+  const document = new XmlDomParser().parseFromString("<r/>", "application/xml");
   const elementProto = Object.getPrototypeOf(document.documentElement);
   const documentProto = Object.getPrototypeOf(document);
 

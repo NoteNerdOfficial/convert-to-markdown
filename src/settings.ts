@@ -86,9 +86,9 @@ export class ConvertToMarkdownSettingTab extends PluginSettingTab {
     new Setting(containerEl)
       .setName("Convert hidden sheets")
       .setDesc(
-        "Spreadsheets only. A hidden sheet is often the raw data a visible pivot table summarises, " +
-          "so hidden sheets are converted like any other. Turn off to leave them out — they're then " +
-          "listed by name in the conversion notes, and any sheet a visible formula, pivot table or " +
+        "Spreadsheets only (.xlsx and .ods). A hidden sheet is often the raw data a visible pivot table " +
+          "summarises, so hidden sheets are converted like any other. Turn off to leave them out — they're " +
+          "then listed by name in the conversion notes, and any sheet a visible formula, pivot table or " +
           "chart reads from is converted regardless."
       )
       .addToggle((toggle) =>
@@ -101,9 +101,10 @@ export class ConvertToMarkdownSettingTab extends PluginSettingTab {
     new Setting(containerEl)
       .setName("Reading images (OCR)")
       .setDesc(
-        "Converting an image file runs local OCR — no API key, and the image never leaves your machine. " +
-          "By default the recognition engine and English training data (~9 MB) download on first use " +
-          "and are then cached; every conversion after that works offline."
+        "Converting an image file — or a page of a scanned PDF, which is the same thing — runs local OCR. " +
+          "No API key, and the image never leaves your machine. By default the recognition engine and " +
+          "English training data (~9 MB) download on first use and are then cached; every conversion after " +
+          "that works offline."
       );
 
     new Setting(containerEl)
