@@ -151,13 +151,21 @@ Lucern Hotel, just down the street from the American Museum of Natural History.
 
 Speakers are read from every convention a real transcript turns up with:
 WebVTT's `<v Name>`, broadcast captioning's `>>` and `>> NAME:`, the
-subtitling convention of a dash at the start of each speaker's line, and
-Webex's own export, which names the speaker on a quoted line of its own —
+subtitling convention of a dash at the start of each speaker's line, Webex's
+own export, which names the speaker on a quoted line of its own —
 `"Priya Rao" (100000002)` — just ahead of the timing line rather than
-inside the cue text. The dash and the chevrons have to be understood anyway —
-`>` and `-` at the start of a line are a blockquote and a list item in
-Markdown, so leaving them in would corrupt the note even if you didn't want
-the speaker names.
+inside the cue text, and the bare `Name: text` several other transcription
+tools write straight into the cue itself. The dash and the chevrons have to
+be understood anyway — `>` and `-` at the start of a line are a blockquote
+and a list item in Markdown, so leaving them in would corrupt the note even
+if you didn't want the speaker names.
+
+The bare form is the one case with no markup at all to go on — `John Doe:
+thanks for joining` and `Note: this call is recorded` are typed identically,
+and only one of them is a speaker. So it's read conservatively: the whole
+file is scanned first for the shape, and a name is only trusted once it's
+shown up more than once. A transcript's actual speakers keep coming back;
+a stray aside essentially never repeats itself word for word.
 
 Auto-generated captions get one extra repair. YouTube's scroll rather than cut:
 each cue restates the previous cue's last line and adds one new one, so the same

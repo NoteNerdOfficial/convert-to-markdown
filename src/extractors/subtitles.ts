@@ -221,6 +221,44 @@ function describeGaps(track: Track): string[] {
  * line, and the text under it. Accepting both timing punctuations and treating
  * the WebVTT-only blocks as absent when they are makes one reader enough.
  */
+/**
+ * The bounds a bare "Name:" prefix has to fit to even be considered — long
+ * enough for "Dr. Sarah Connor", short enough that an ordinary sentence
+ * reaching a colon well into it doesn't qualify.
+ */
+const BARE_SPEAKER = /^([^:\n]{1,40}):[ \t]+(?=\S)/;
+
+/**
+ * Speaker names inferred from a bare "Name: text" prefix — no `<v>`, no `>>`,
+ * no quotes, nothing marking the line as a speaker turn except the shape of
+ * it. Several transcription tools (Teams, Otter, various Whisper-based ones)
+ * write cues this way, and nothing distinguishes "John Doe: Good morning" as
+ * a speaker line from "Note: see appendix" as an ordinary sentence except
+ * that a transcript's actual speakers keep coming back and a prose aside
+ * essentially never repeats itself word for word. So the whole file is
+ * scanned first for the shape, and only a name seen more than once is
+ * trusted; the assumption is that a two-line transcript is unlikely to exist,
+ * and a name that shows up exactly once is far more likely to be a stray
+ * "Note:" than a speaker who only ever said one thing.
+ */
+function recurringBareSpeakers(source: string): Set<string> {
+  const counts = new Map<string, number>();
+
+  for (const line of splitLines(source)) {
+    const match = BARE_SPEAKER.exec(line.trim());
+    if (!match) continue;
+    const name = squashSpaces(match[1]);
+    if (name === "") continue;
+    counts.set(name, (counts.get(name) ?? 0) + 1);
+  }
+
+  const recurring = new Set<string>();
+  for (const [name, count] of counts) {
+    if (count >= 2) recurring.add(name);
+  }
+  return recurring;
+}
+
 function parseTrack(source: string): Track {
   const track: Track = {
     title: null,
@@ -233,6 +271,8 @@ function parseTrack(source: string): Track {
     styleBlocks: 0,
     regionBlocks: 0,
   };
+
+  const recurringSpeakers = recurringBareSpeakers(source);
 
   // A cue's text can't contain a blank line, in either format, so blank lines
   // are an unambiguous block separator.
@@ -285,7 +325,7 @@ function parseTrack(source: string): Track {
     // some other way.
     const cueSpeaker = webexSpeaker(lines.slice(0, timingIndex));
 
-    for (const turn of readCueText(lines.slice(timingIndex + 1))) {
+    for (const turn of readCueText(lines.slice(timingIndex + 1), recurringSpeakers)) {
       track.turns.push({ start: timing.start, end: timing.end, ...turn, speaker: turn.speaker ?? cueSpeaker });
     }
   }
@@ -355,7 +395,10 @@ interface Span {
  * are a blockquote and a list item in Markdown, so leaving them in place would
  * corrupt the note even if the speaker information were thrown away.
  */
-function readCueText(lines: string[]): { speaker: string | null; forced: boolean; text: string }[] {
+function readCueText(
+  lines: string[],
+  recurringSpeakers: Set<string>
+): { speaker: string | null; forced: boolean; text: string }[] {
   const spans = tokenizeCue(lines.join("\n"));
   const turns: { speaker: string | null; forced: boolean; runs: Span[] }[] = [];
   let current: { speaker: string | null; forced: boolean; runs: Span[] } | null = null;
@@ -372,9 +415,9 @@ function readCueText(lines: string[]): { speaker: string | null; forced: boolean
       let forceBreak = false;
 
       if (atLineStart) {
-        const marker = readTurnMarker(text);
+        const marker = readTurnMarker(text, recurringSpeakers);
         if (marker) {
-          forceBreak = true;
+          forceBreak = marker.forceBreak;
           text = marker.rest;
           if (marker.speaker) speaker = marker.speaker;
         }
@@ -419,19 +462,42 @@ function webexSpeaker(precedingLines: string[]): string | null {
   return null;
 }
 
-function readTurnMarker(line: string): { speaker: string | null; rest: string } | null {
+function readTurnMarker(
+  line: string,
+  recurringSpeakers: Set<string>
+): { speaker: string | null; rest: string; forceBreak: boolean } | null {
   const chevrons = /^>{2,3}\s*/.exec(line);
   if (chevrons) {
     const rest = line.slice(chevrons[0].length);
     // `>> ROGER BINGHAM: text` names the speaker; a bare `>>` only says it
     // changed. The name is bounded to keep an ordinary sentence containing a
-    // colon from being read as one.
+    // colon from being read as one. Either way the cue is forced onto a new
+    // paragraph: `>>` alone marks a change of speaker without saying who to,
+    // and two of those in a row are otherwise indistinguishable from one
+    // speaker's cue that happened to get split in two.
     const named = /^([^:]{1,40}):\s*/.exec(rest);
-    return named ? { speaker: squashSpaces(named[1]), rest: rest.slice(named[0].length) } : { speaker: null, rest };
+    return named
+      ? { speaker: squashSpaces(named[1]), rest: rest.slice(named[0].length), forceBreak: true }
+      : { speaker: null, rest, forceBreak: true };
   }
 
   const dash = /^[-–—]\s+/.exec(line);
-  if (dash) return { speaker: null, rest: line.slice(dash[0].length) };
+  if (dash) return { speaker: null, rest: line.slice(dash[0].length), forceBreak: true };
+
+  // A bare "Name:" with nothing else marking it as a speaker line — only
+  // trusted for a name `recurringBareSpeakers` already confirmed repeats
+  // across the file, since nothing about this one line can tell "John Doe:"
+  // apart from "Note:". Unlike `>>` and the dash, this always names an actual
+  // person rather than leaving the speaker anonymous, so there's no need to
+  // force a new paragraph the way those do — two consecutive cues both
+  // marked "John Doe:" are already distinguishable from two different
+  // speakers by that name alone, and should merge into one paragraph the
+  // same as Webex's cue-level speaker does.
+  const bare = BARE_SPEAKER.exec(line);
+  if (bare) {
+    const name = squashSpaces(bare[1]);
+    if (recurringSpeakers.has(name)) return { speaker: name, rest: line.slice(bare[0].length), forceBreak: false };
+  }
 
   return null;
 }
