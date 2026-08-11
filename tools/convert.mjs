@@ -31,6 +31,12 @@ globalThis.DOMParser = class {
       : new XmlDomParser().parseFromString(source, type);
   }
 };
+// Obsidian's lint rules want `window.setTimeout`/`window.clearTimeout` rather
+// than the bare global, since a popout window has its own; Node has no
+// `window` at all, so this points it at the same timers the bare globals
+// already are.
+if (typeof globalThis.window === "undefined") globalThis.window = globalThis;
+
 // pdf.js uses Promise.withResolvers, which Obsidian's Electron has but Node
 // only gained in 22.
 if (typeof Promise.withResolvers !== "function") {

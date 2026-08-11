@@ -244,7 +244,7 @@ function parseTrack(source: string): Track {
       .filter((line, position, all) => !(line.trim() === "" && (position === 0 || position === all.length - 1)));
     if (lines.length === 0) continue;
 
-    if (index === 0 && /^﻿?WEBVTT/.test(lines[0])) {
+    if (index === 0 && /^\uFEFF?WEBVTT/.test(lines[0])) {
       readHeader(lines, track);
       continue;
     }
@@ -289,7 +289,7 @@ function parseTrack(source: string): Track {
 }
 
 function readHeader(lines: string[], track: Track): void {
-  const title = lines[0].replace(/^﻿?WEBVTT\s*/, "").replace(/^-\s*/, "").trim();
+  const title = lines[0].replace(/^\uFEFF?WEBVTT\s*/, "").replace(/^-\s*/, "").trim();
   if (title !== "") track.title = title;
 
   for (const line of lines.slice(1)) {

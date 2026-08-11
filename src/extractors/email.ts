@@ -3,7 +3,6 @@ import {
   collectImageSources,
   documentRoot,
   findMainContent,
-  ImageBytes,
   parseHtml,
   renderHtml,
   resolveImages,
@@ -234,7 +233,7 @@ async function renderPage(
     const part = src.toLowerCase().startsWith("cid:") ? byCid.get(src.slice(4)) : byLocation.get(src);
     if (!part) return null;
     const extension = imageExtensionForMime(part.contentType);
-    return extension ? ({ data: part.body, extension } as ImageBytes) : null;
+    return extension ? { data: part.body, extension } : null;
   });
 
   const placedCids = [...images.keys()]

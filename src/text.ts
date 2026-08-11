@@ -84,7 +84,7 @@ const WINDOWS_1252_C1 =
 
 // The five bytes windows-1252 leaves undefined (0x81, 0x8d, 0x8f, 0x90, 0x9d)
 // map back to themselves, so nothing is invented for a byte that means nothing.
-// eslint-disable-next-line no-control-regex
+// eslint-disable-next-line no-control-regex -- these code points are windows-1252's printable range, matched deliberately, not stray control characters.
 const C1_RANGE = /[\u0080-\u009f]/g;
 
 function repairC1(text: string): string {

@@ -194,7 +194,13 @@ export default class ConvertToMarkdownPlugin extends Plugin {
   }
 
   async loadSettings(): Promise<void> {
-    this.settings = Object.assign({}, DEFAULT_SETTINGS, await this.loadData());
+    // loadData() is typed Promise<any> — whatever was last saved to data.json
+    // — so the shape is only as trustworthy as the file on disk. Asserting it
+    // here keeps that any from spreading into `this.settings`, which is fine:
+    // Object.assign below only takes keys DEFAULT_SETTINGS already defines,
+    // so a stale or hand-edited data.json can't inject anything unexpected.
+    const saved = (await this.loadData()) as Partial<ConvertToMarkdownSettings> | null;
+    this.settings = Object.assign({}, DEFAULT_SETTINGS, saved);
   }
 
   async saveSettings(): Promise<void> {

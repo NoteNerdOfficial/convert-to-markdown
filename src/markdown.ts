@@ -111,5 +111,5 @@ export function yamlValue(text: string): string {
 
 /** Normalises whitespace inside a text run without touching line structure. */
 export function squashSpaces(text: string): string {
-  return text.replace(/[ \t ]+/g, " ").trim();
+  return text.replace(/[ \t\u00A0]+/g, " ").trim();
 }

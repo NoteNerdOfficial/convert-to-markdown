@@ -143,12 +143,10 @@ function parseDelimited(text: string, delimiter: string): string[][] {
   let field = "";
   let quoted = false;
   let quotedYet = false;
-  let started = false;
 
   const endField = () => {
     row.push(field);
     field = "";
-    started = false;
     quotedYet = false;
   };
   const endRow = () => {
@@ -184,7 +182,6 @@ function parseDelimited(text: string, delimiter: string): string[][] {
       field = "";
       quoted = true;
       quotedYet = true;
-      started = true;
       continue;
     }
     if (char === delimiter) {
@@ -201,7 +198,6 @@ function parseDelimited(text: string, delimiter: string): string[][] {
       continue;
     }
     field += char;
-    started = true;
   }
 
   if (field !== "" || row.length > 0) endRow();

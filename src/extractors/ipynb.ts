@@ -340,7 +340,7 @@ function fence(text: string, language: string): string[] {
  * to the stream, escape sequences and all, and a coloured traceback is mostly
  * escape sequences by character count.
  */
-// eslint-disable-next-line no-control-regex
+// eslint-disable-next-line no-control-regex -- \u001b (ESC) is the byte that starts an ANSI escape sequence, matched deliberately.
 const ANSI = /\u001b\[[0-9;?]*[ -/]*[@-~]/g;
 
 function stripAnsi(text: string): string {

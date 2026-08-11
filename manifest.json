@@ -1,9 +1,9 @@
 {
   "id": "convert-to-markdown",
   "name": "Convert to Markdown",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "minAppVersion": "1.7.2",
-  "description": "Convert PDF, Word, PowerPoint, Excel, OpenDocument, EPUB, web pages, email, notebooks, subtitles, CSV and images to Markdown — headings, tables, lists and embedded images intact. Parsed natively: no Python, no pip, no cloud service, nothing uploaded. Local OCR reads scans and images.",
+  "description": "Convert PDF, Office, OpenDocument, EPUB, web pages, email, notebooks, subtitles and images to Markdown, deterministically. No Python, no cloud service, nothing uploaded. Local OCR reads scans and images.",
   "author": "notenerd",
   "authorUrl": "",
   "fundingUrl": "",

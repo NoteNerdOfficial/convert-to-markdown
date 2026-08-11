@@ -1,5 +1,5 @@
 import { AssetSink, imageExtensionOf } from "../assets";
-import { collectImageSources, documentRoot, ImageBytes, parseHtml, renderHtml, resolveImages } from "../html";
+import { collectImageSources, documentRoot, parseHtml, renderHtml, resolveImages } from "../html";
 import { escapeInline, heading, joinBlocks, openingHeading, yamlValue } from "../markdown";
 import { descendants, parseXml, resolvePartPath } from "../ooxml";
 import { ZipArchive } from "../zip";
@@ -213,7 +213,7 @@ async function renderChapter(
     const path = resolvePartPath(chapterPath, decodeURI(src.split("#")[0]));
     const extension = imageExtensionOf(path);
     const data = extension ? zip.bytes(path) : null;
-    return data && extension ? ({ data, extension } as ImageBytes) : null;
+    return data && extension ? { data, extension } : null;
   });
 
   return {
@@ -247,11 +247,26 @@ function unwrapSvgImages(document: Document): void {
       target = parent as Element;
     }
 
-    const replacement = document.createElement("img");
-    replacement.setAttribute("src", href);
-    replacement.setAttribute("alt", image.getAttribute("alt") ?? "");
-    target.parentNode?.replaceChild(replacement, target);
+    const replacement = imgElement(href, image.getAttribute("alt") ?? "");
+    if (replacement) target.parentNode?.replaceChild(replacement, target);
   }
+}
+
+/**
+ * Builds a plain `<img>`, without `Document.createElement`.
+ *
+ * This document is a parsed XHTML chapter, not Obsidian's own — there is no
+ * `createEl` to reach for on it. Building the element through the same parser
+ * that reads the chapters keeps the whole file to one way of turning markup
+ * into a DOM, rather than adding a second, lower-level one just for this.
+ */
+function imgElement(src: string, alt: string): Element | null {
+  const fragment = parseHtml(`<img src="${escapeAttribute(src)}" alt="${escapeAttribute(alt)}">`);
+  return fragment.getElementsByTagName("img").item(0);
+}
+
+function escapeAttribute(value: string): string {
+  return value.replace(/&/g, "&amp;").replace(/"/g, "&quot;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 }
 
 /**

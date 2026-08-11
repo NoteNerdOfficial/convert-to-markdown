@@ -278,8 +278,8 @@ async function pageRasters(page: PDFPageProxy): Promise<Buffer[]> {
   for (let i = 0; i < operatorList.fnArray.length; i++) {
     if (operatorList.fnArray[i] !== OPS.paintImageXObject) continue;
 
-    const objId = operatorList.argsArray[i]?.[0];
-    if (typeof objId !== "string" || seen.has(objId)) continue;
+    const objId = imageObjectId(operatorList, i);
+    if (!objId || seen.has(objId)) continue;
     seen.add(objId);
 
     const image = await awaitImage(page, objId);
@@ -331,8 +331,8 @@ async function extractPageImages(
   for (let i = 0; i < operatorList.fnArray.length; i++) {
     if (operatorList.fnArray[i] !== OPS.paintImageXObject) continue;
 
-    const objId = operatorList.argsArray[i]?.[0];
-    if (typeof objId !== "string" || seen.has(objId)) continue;
+    const objId = imageObjectId(operatorList, i);
+    if (!objId || seen.has(objId)) continue;
     seen.add(objId);
 
     const png = toPng(await awaitImage(page, objId));
@@ -354,6 +354,20 @@ interface DecodedImage {
   height: number;
   kind: number;
   data: Uint8Array | null;
+}
+
+/**
+ * The object id an image-painting operator's first argument carries.
+ *
+ * pdf.js types `argsArray` as `Array<any>` — an operator's arguments are
+ * whatever shape that operator needs, and there's no single interface for
+ * all of them — so reading it back out narrowed to the one shape this code
+ * actually expects keeps that `any` from spreading into the caller.
+ */
+function imageObjectId(operatorList: { argsArray: unknown[] }, index: number): string | null {
+  const args = operatorList.argsArray[index];
+  const id = Array.isArray(args) ? (args[0] as unknown) : undefined;
+  return typeof id === "string" ? id : null;
 }
 
 /** Long enough for a large image to be decoded, short enough not to hang. */
@@ -382,10 +396,12 @@ function awaitImage(page: PDFPageProxy, objId: string): Promise<DecodedImage | u
     const finish = (image: DecodedImage | undefined) => {
       if (settled) return;
       settled = true;
-      clearTimeout(timer);
+      window.clearTimeout(timer);
       resolve(image);
     };
-    const timer = setTimeout(() => finish(undefined), IMAGE_WAIT_MS);
+    // `window.setTimeout`, not the bare global: this can run against a popout
+    // window's own `document`/`window`, and the timer has to belong to it.
+    const timer = window.setTimeout(() => finish(undefined), IMAGE_WAIT_MS);
 
     try {
       if (store.has(objId)) finish(store.get(objId) as DecodedImage);
