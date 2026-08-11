@@ -152,13 +152,19 @@ Lucern Hotel, just down the street from the American Museum of Natural History.
 Speakers are read from every convention a real transcript turns up with:
 WebVTT's `<v Name>`, broadcast captioning's `>>` and `>> NAME:`, the
 subtitling convention of a dash at the start of each speaker's line, Webex's
-own export, which names the speaker on a quoted line of its own —
-`"Priya Rao" (100000002)` — just ahead of the timing line rather than
-inside the cue text, and the bare `Name: text` several other transcription
-tools write straight into the cue itself. The dash and the chevrons have to
-be understood anyway — `>` and `-` at the start of a line are a blockquote
-and a list item in Markdown, so leaving them in would corrupt the note even
-if you didn't want the speaker names.
+own export, which names the speaker on the cue's own identifier line —
+`2 "Alex Kim (They/Them)" (100000001)` — quoted name and participant id,
+ahead of the timing line rather than inside the cue text, and the bare
+`Name: text` several other transcription tools write straight into the cue
+itself. Webex's identifier line is read whether or not the cue number sits
+in front of the quoted name on that same line — real exports do both — and
+the name itself may hold its own parentheses (Webex appends a participant's
+pronouns to their display name), so the trailing `(id)` is matched at the
+end of the line rather than as the first parenthesised group found. The dash
+and the chevrons have to be understood anyway — `>` and `-` at the start of
+a line are a blockquote and a list item in Markdown, so leaving them in
+would corrupt the note even if you
+didn't want the speaker names.
 
 The bare form is the one case with no markup at all to go on — `John Doe:
 thanks for joining` and `Note: this call is recorded` are typed identically,

@@ -443,19 +443,22 @@ function readCueText(
 }
 
 /**
- * Webex's speaker line — `"Priya Rao" (100000002)` — from the lines a cue
- * carries ahead of its timing line.
+ * Webex's speaker line — `2 "Alex Kim (They/Them)" (100000001)` — from the
+ * lines a cue carries ahead of its timing line.
  *
- * Standard WebVTT allows one optional cue identifier there, usually the plain
- * numeral a captioning tool numbers cues with; Webex's own export puts a
- * second line after it naming who's speaking, quoted name and a numeric
- * participant id. The quotes are what make it unambiguous — nothing else
- * legitimately shows up ahead of a timing line quoted like that — so this
- * doesn't need to guess, only recognise a fixed shape.
+ * The cue number WebVTT's own optional identifier would normally carry sits
+ * on this same line, immediately before the quoted name, rather than on a
+ * line of its own — so the number is read as an optional prefix rather than
+ * assumed away. The quotes are what make the rest unambiguous — nothing else
+ * legitimately shows up ahead of a timing line quoted like that, parenthesised
+ * name included: Webex appends a participant's pronouns to their display name
+ * the same way, so the name itself may well contain parentheses of its own,
+ * which is why the trailing `(id)` is matched at the end of the line rather
+ * than as the first parenthesised group found.
  */
 function webexSpeaker(precedingLines: string[]): string | null {
   for (const line of precedingLines) {
-    const match = /^"([^"]*)"\s*\(\d+\)\s*$/.exec(line.trim());
+    const match = /^(?:\d+[ \t]+)?"([^"]*)"[ \t]*\(\d+\)[ \t]*$/.exec(line.trim());
     const name = match ? squashSpaces(match[1]) : "";
     if (name !== "") return name;
   }
