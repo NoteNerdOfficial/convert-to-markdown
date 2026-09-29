@@ -1,4 +1,4 @@
-import { createWorker, PSM } from "tesseract.js";
+import { createWorker, PSM, type Worker } from "tesseract.js";
 import { OcrEngineFiles, OcrProvider } from "./ocr";
 import { squashSpaces } from "./markdown";
 
@@ -53,7 +53,7 @@ export class OcrEngineError extends Error {
 }
 
 export async function recognize(data: Buffer, ocr: OcrProvider): Promise<Recognition> {
-  let worker;
+  let worker: Worker;
   try {
     const engine = await ocr.resolve();
     worker = await createWorker("eng", undefined, {

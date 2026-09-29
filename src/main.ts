@@ -432,11 +432,11 @@ class ConversionWrites {
     for (const { file, from } of this.moves.reverse()) {
       await fileManager.renameFile(file, from).catch((error) => warnUndo(`move ${file.path} back`, error));
     }
-    // These never held anything but what this conversion put in them, so
-    // they're deleted outright rather than sent to the trash.
+    // Sent wherever the user's "deleted files" setting says, like any other
+    // file Obsidian removes — even though these only ever held what this
+    // conversion put in them.
     for (const file of this.files.reverse()) {
-      // eslint-disable-next-line obsidianmd/prefer-file-manager-trash-file
-      await vault.delete(file).catch((error) => warnUndo(`delete ${file.path}`, error));
+      await fileManager.trashFile(file).catch((error) => warnUndo(`delete ${file.path}`, error));
     }
     // Deepest first, so a nested folder empties its parent before the
     // parent is looked at — and only if nothing else has landed in it.
