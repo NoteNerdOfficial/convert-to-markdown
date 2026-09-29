@@ -1,4 +1,5 @@
 import { App, PluginSettingTab, Setting, normalizePath } from "obsidian";
+import { DEFAULT_ATTACHMENT_FOLDER } from "./attachments";
 import type ConvertToMarkdownPlugin from "./main";
 
 export interface ConvertToMarkdownSettings {
@@ -8,6 +9,10 @@ export interface ConvertToMarkdownSettings {
   outputFolder: string;
   /** Copy images out of the source file into the vault and embed them. */
   extractImages: boolean;
+  /** Whether images follow attachmentFolder or Obsidian's own attachment setting. */
+  attachmentLocation: "plugin" | "obsidian";
+  /** Folder template for images when attachmentLocation is "plugin"; see attachmentFolderFor. */
+  attachmentFolder: string;
   /** Vault folder holding the OCR engine files, or "" to download them. */
   ocrDataFolder: string;
   /** Convert spreadsheet sheets Excel has marked hidden. */
@@ -24,6 +29,8 @@ export const DEFAULT_SETTINGS: ConvertToMarkdownSettings = {
   outputLocation: "sameFolder",
   outputFolder: "Converted",
   extractImages: true,
+  attachmentLocation: "plugin",
+  attachmentFolder: DEFAULT_ATTACHMENT_FOLDER,
   ocrDataFolder: "",
   includeHiddenSheets: true,
   addFrontmatter: true,
@@ -83,15 +90,57 @@ export class ConvertToMarkdownSettingTab extends PluginSettingTab {
     new Setting(containerEl)
       .setName("Extract images")
       .setDesc(
-        "Copy images out of the document into an attachments folder beside the note and embed them. " +
-          "Turn off for text-only notes."
+        "Copy images out of the document into an attachments folder and embed them. An image file " +
+          "being converted is moved there itself. Turn off for text-only notes."
       )
       .addToggle((toggle) =>
         toggle.setValue(this.plugin.settings.extractImages).onChange(async (value) => {
           this.plugin.settings.extractImages = value;
           await this.plugin.saveSettings();
+          this.display();
         })
       );
+
+    if (this.plugin.settings.extractImages) {
+      new Setting(containerEl)
+        .setName("Save images")
+        .setDesc(
+          "Where extracted images are written. Obsidian's choice follows Files and links → " +
+            "Default location for new attachments, the same place pasted images go."
+        )
+        .addDropdown((dropdown) =>
+          dropdown
+            .addOption("plugin", "In the folder set below")
+            .addOption("obsidian", "Where Obsidian puts attachments")
+            .setValue(this.plugin.settings.attachmentLocation)
+            .onChange(async (value) => {
+              this.plugin.settings.attachmentLocation = value === "obsidian" ? "obsidian" : "plugin";
+              await this.plugin.saveSettings();
+              this.display();
+            })
+        );
+
+      if (this.plugin.settings.attachmentLocation === "plugin") {
+        const desc = createFragment((fragment) => {
+          fragment.appendText("Relative to the converted note. {{note}} is replaced by the note's name.");
+          fragment.createEl("br");
+          fragment.appendText("XAttachment → a folder beside the note · ../assets → up one level · ");
+          fragment.appendText("/Assets/{{note}} → from the vault root.");
+        });
+        new Setting(containerEl)
+          .setName("Image folder")
+          .setDesc(desc)
+          .addText((text) =>
+            text
+              .setPlaceholder(DEFAULT_ATTACHMENT_FOLDER)
+              .setValue(this.plugin.settings.attachmentFolder)
+              .onChange(async (value) => {
+                this.plugin.settings.attachmentFolder = value.trim() || DEFAULT_ATTACHMENT_FOLDER;
+                await this.plugin.saveSettings();
+              })
+          );
+      }
+    }
 
     new Setting(containerEl)
       .setName("Convert hidden sheets")

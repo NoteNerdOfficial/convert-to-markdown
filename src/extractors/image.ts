@@ -47,7 +47,7 @@ export async function extractImage(
       `${discarded} unreadable region${discarded === 1 ? "" : "s"} dropped — usually text over a photo, or something that isn't text at all.`
     );
   }
-  if (!embed) warnings.push("The image itself was not copied into the vault (image extraction is off).");
+  if (!embed) warnings.push("The image itself isn't embedded (image extraction is off).");
 
   return {
     markdown: joinBlocks([

@@ -189,6 +189,24 @@ inside a Word table cell comes out inside that table cell. Identical images are
 written once no matter how many times they're used, so a logo on forty slides
 is one file.
 
+The folder is a setting. **Image folder** is a path relative to the converted
+note, where `{{note}}` stands for the note's name: `XAttachment` is a folder
+beside the note, `../assets` is one level up, and a leading slash —
+`/Assets/{{note}}` — starts from the vault root. A path that would leave the
+vault stops the conversion with an error rather than writing somewhere else.
+Or set **Save images** to follow Obsidian's own *Default location for new
+attachments*, and converted images land wherever pasted ones do. Several notes
+can share one folder: an image that's already there under the same
+hash-stamped name is the same image, so it's linked rather than written again.
+
+Converting an image file (a PNG screenshot, a scanned JPEG) moves that file
+into the image folder rather than copying it there, and the note embeds it —
+one file, where the setting says images go. The move goes through Obsidian, so
+anything already linking to the image follows it. If a different file already
+has that name in the folder, the image stays put and the conversion notes say
+so. A conversion that fails partway takes back everything it wrote: the empty
+note, any images, any folders it created, and the move.
+
 Each one is named with a short hash of its own bytes (`image-1-a3f9c2b7.png`),
 and embedded by that bare filename rather than its full path. That's what lets
 the attachments folder be moved anywhere else in the vault — by Obsidian's

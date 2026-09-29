@@ -74,6 +74,11 @@ const EXTRACTORS: Record<string, Extractor> = {
 
 export const SUPPORTED_EXTENSIONS = Object.keys(EXTRACTORS);
 
+/** Whether the file is itself an image, rather than a document that may hold some. */
+export function isImage(extension: string): boolean {
+  return EXTRACTORS[extension.toLowerCase()] === extractImage;
+}
+
 export function extractorFor(extension: string): Extractor | null {
   return EXTRACTORS[extension.toLowerCase()] ?? null;
 }
