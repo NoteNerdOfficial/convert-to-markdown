@@ -4,7 +4,7 @@ import { AssetSink } from "../assets";
 import { bullet, escapeInline, heading, joinBlocks, squashSpaces } from "../markdown";
 import { CDN_OCR, OcrProvider } from "../ocr";
 import { encodePng } from "../png";
-import { forPage, recognize, Recognition } from "../recognize";
+import { forPage, OcrEngineError, recognize, Recognition } from "../recognize";
 import { ExtractResult } from "./types";
 
 // pdfjs-dist's worker script, inlined at build time by esbuild (see
@@ -93,7 +93,7 @@ export async function extractPdf(
       }
     }
 
-    const scanned = await readScannedPages(document, imageOnly, ocr);
+    const { scanned, failed, engineError } = await readScannedPages(document, imageOnly, ocr);
 
     // Running headers and footers are found on the naive full-width rows and
     // dropped before columns are worked out. A three-part footer spread along
@@ -104,6 +104,10 @@ export async function extractPdf(
     const pages = pageRows.map((rows) => buildPage(withoutFurniture(rows, repeated)));
 
     const allLines = pages.flat();
+    // With nothing else to show, a note saying the engine didn't load is
+    // worse than failing: the conversion is only worth redoing once the
+    // setting or the network is fixed, and an error says that plainly.
+    if (allLines.length === 0 && engineError) throw engineError;
     if (allLines.length === 0 && scanned.size === 0) {
       throw new Error(
         "this PDF has no text at all — no text layer, and no page image that OCR could read either"
@@ -128,7 +132,7 @@ export async function extractPdf(
 
     return {
       markdown: joinBlocks(lines),
-      warnings: pdfWarnings(document.numPages, pages, scanned, skippedImages),
+      warnings: pdfWarnings(document.numPages, pages, { scanned, failed, engineError }, skippedImages),
       frontmatter: coverageOf(document.numPages, pages, scanned),
     };
   } finally {
@@ -155,7 +159,7 @@ function hasText(recognition: Recognition | undefined): boolean {
 function pdfWarnings(
   pageCount: number,
   pages: Line[][],
-  scanned: Map<number, Recognition>,
+  { scanned, failed, engineError }: ScannedPages,
   skippedImages: number
 ): string[] {
   const warnings = ["Vector graphics and charts drawn as line art are not extracted."];
@@ -186,10 +190,25 @@ function pdfWarnings(
     }
   }
 
+  // Pages OCR never got to read are reported with the reason, apart from the
+  // ones it read and found empty: "nothing OCR could read" would send someone
+  // to check a page that was never looked at.
+  if (failed.length > 0) {
+    const pagesText = `${failed.length} of ${pageCount} pages (${listPages(failed)})`;
+    warnings.push(
+      engineError
+        ? `${pagesText} had no text layer and could not be read, because the OCR engine didn't load: ` +
+            `${engineError.message}. Fix that and convert again to get ${failed.length === 1 ? "it" : "them"}.`
+        : `${pagesText} had no text layer, and OCR failed on ${failed.length === 1 ? "it" : "them"}.`
+    );
+  }
+
   // Named, not counted: which pages came out empty is what makes it possible
   // to go back to the original and see what was on them.
   const blank = pages
-    .map((page, index) => (page.length === 0 && !hasText(scanned.get(index + 1)) ? index + 1 : 0))
+    .map((page, index) =>
+      page.length === 0 && !hasText(scanned.get(index + 1)) && !failed.includes(index + 1) ? index + 1 : 0
+    )
     .filter((page) => page > 0);
   if (blank.length > 0) {
     warnings.push(
@@ -219,14 +238,32 @@ function listPages(pages: number[]): string {
  * otherwise mean holding two hundred full-page rasters while the first pass
  * finished.
  */
+interface ScannedPages {
+  /** What OCR read, by page number. */
+  scanned: Map<number, Recognition>;
+  /** Pages with an image to read that OCR never read, in order. */
+  failed: number[];
+  /** Why none could be read, when the engine itself wouldn't start. */
+  engineError: OcrEngineError | null;
+}
+
 async function readScannedPages(
   document: PDFDocumentProxy,
   pageNumbers: number[],
   ocr: OcrProvider
-): Promise<Map<number, Recognition>> {
+): Promise<ScannedPages> {
   const results = new Map<number, Recognition>();
+  const failed: number[] = [];
+  let engineError: OcrEngineError | null = null;
 
   for (const [index, pageNumber] of pageNumbers.entries()) {
+    // An engine that wouldn't start for one page won't for the next: the
+    // rest are counted as unread rather than each retrying — and, on the
+    // download path, each waiting out the same timeout.
+    if (engineError) {
+      failed.push(pageNumber);
+      continue;
+    }
     const page = await document.getPage(pageNumber);
     try {
       const rasters = await pageRasters(page);
@@ -244,15 +281,17 @@ async function readScannedPages(
         confidence: Math.min(...recognitions.map((recognition) => recognition.confidence)),
         discarded: recognitions.reduce((total, recognition) => total + recognition.discarded, 0),
       });
-    } catch {
-      // One unreadable page shouldn't cost the other hundred; it is reported
-      // as producing nothing, which is what happened.
+    } catch (error) {
+      // One unreadable page shouldn't cost the other hundred; it is named in
+      // the conversion notes and the rest carry on.
+      if (error instanceof OcrEngineError) engineError = error;
+      failed.push(pageNumber);
     } finally {
       page.cleanup();
     }
   }
 
-  return results;
+  return { scanned: results, failed, engineError };
 }
 
 /**

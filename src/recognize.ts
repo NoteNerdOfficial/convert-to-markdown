@@ -38,13 +38,32 @@ export interface Recognition {
  */
 const MIN_PARAGRAPH_CONFIDENCE = 60;
 
+/**
+ * The OCR engine itself couldn't be started — its files are missing from the
+ * configured folder, or the download was blocked — as opposed to one image
+ * failing to recognise. The difference matters to anything reading several
+ * images: an engine that won't start fails the same way on every one of them,
+ * and the reason is a setting or the network, not the pages.
+ */
+export class OcrEngineError extends Error {
+  constructor(cause: unknown) {
+    super(cause instanceof Error ? cause.message : String(cause));
+    this.name = "OcrEngineError";
+  }
+}
+
 export async function recognize(data: Buffer, ocr: OcrProvider): Promise<Recognition> {
-  const engine = await ocr.resolve();
-  const worker = await createWorker("eng", undefined, {
-    ...workerOptions(),
-    ...engineOptions(engine),
-    logger: ({ status, progress }: { status: string; progress: number }) => ocr.report?.(status, progress),
-  });
+  let worker;
+  try {
+    const engine = await ocr.resolve();
+    worker = await createWorker("eng", undefined, {
+      ...workerOptions(),
+      ...engineOptions(engine),
+      logger: ({ status, progress }: { status: string; progress: number }) => ocr.report?.(status, progress),
+    });
+  } catch (error) {
+    throw new OcrEngineError(error);
+  }
 
   try {
     // Tesseract's own default is to treat the image as one uniform block of
