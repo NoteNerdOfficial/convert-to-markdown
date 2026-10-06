@@ -73,8 +73,7 @@ export async function readFormFields(document: PDFDocumentProxy): Promise<FormFi
   if (fields.length === 0 && signatures.length === 0) return NO_FORM;
   disambiguate([...fields, ...signatures]);
 
-  fields.sort(byPosition);
-  const rows = fields.map((field) => ({ field, value: valueOf(field, details.selections) }));
+  const rows = inReadingOrder(fields).map((field) => ({ field, value: valueOf(field, details.selections) }));
   const filled = rows.filter((row) => row.value.filled);
 
   const warnings: string[] = [];
@@ -221,14 +220,26 @@ function choices(widget: FieldObject, selections: Map<string, unknown[]>): strin
 /**
  * Fields in the order they sit on the page — down, then across — so the table
  * reads like the form. `getFieldObjects()` gives no order to rely on.
+ *
+ * Fields on one line rarely share an exact baseline, so they're gathered into
+ * lines first and each line read left to right. Comparing pairs with a
+ * tolerance instead would make the order depend on which fields happened to
+ * be compared: two fields can each be "level" with a third without being
+ * level with each other.
  */
-function byPosition(a: Field, b: Field): number {
-  const [pageA, topA, leftA] = positionOf(a);
-  const [pageB, topB, leftB] = positionOf(b);
-  if (pageA !== pageB) return pageA - pageB;
-  // Fields on the same line rarely share an exact baseline.
-  if (Math.abs(topA - topB) > 4) return topB - topA;
-  return leftA - leftB;
+function inReadingOrder(fields: Field[]): Field[] {
+  const placed = fields
+    .map((field) => ({ field, position: positionOf(field) }))
+    .sort((a, b) => a.position[0] - b.position[0] || b.position[1] - a.position[1]);
+
+  const lines: (typeof placed)[] = [];
+  for (const entry of placed) {
+    const line = lines[lines.length - 1];
+    const level = line && line[0].position[0] === entry.position[0] && line[0].position[1] - entry.position[1] <= 4;
+    if (level) line.push(entry);
+    else lines.push([entry]);
+  }
+  return lines.flatMap((line) => line.sort((a, b) => a.position[2] - b.position[2]).map((entry) => entry.field));
 }
 
 function positionOf(field: Field): [number, number, number] {
