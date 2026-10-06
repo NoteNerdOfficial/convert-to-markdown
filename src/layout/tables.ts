@@ -58,14 +58,27 @@ export interface DetectedTable {
 const SPACE_GAP = 0.2;
 
 /**
- * Rows further apart than this, in multiples of the smaller row's text
+ * Rows further apart than this, in multiples of the larger row's text
  * height, aren't neighbouring rows of one table — unless the gap repeats.
- * Table rows are usually padded by less than this, but some writers pad
- * them by far more (LibreOffice sets them nearly three lines apart), and
- * what gives a table away then is that every row is the same distance from
- * the next, which the gap before a table and after it rarely are.
+ * Table rows are usually padded by less than this, and the first row sits a
+ * little further below a header that wraps over several lines. Some writers
+ * pad every row by far more (LibreOffice sets them nearly three lines
+ * apart), and what gives a table away then is that every row is the same
+ * distance from the next, which the gap before a table and after it rarely
+ * are.
  */
-const MAX_ROW_GAP = 2;
+const MAX_ROW_GAP = 2.5;
+
+/**
+ * A gap up to this multiple of the one before it is the step from a header
+ * to its first row, not a break. Measured against the lines above rather
+ * than in ems, since a writer setting small type with open leading spaces
+ * everything wider.
+ */
+const HEADER_STEP = 1.8;
+
+/** Neighbouring lines this many times apart in size aren't one table. */
+const SIZE_JUMP = 1.3;
 
 /** Two gaps within this fraction of each other are the same row pitch. */
 const SAME_PITCH = 0.15;
@@ -84,6 +97,12 @@ const PITCH_REACH = 3;
  * included, is reliably more than this.
  */
 const SAME_ROW_GAP = 1.2;
+
+/**
+ * How much larger than the leading inside a cell the gap between rows has to
+ * be before the two can be told apart.
+ */
+const ROW_PITCH_STEP = 1.2;
 
 /** How far apart, in ems, two left edges can be and still be one alignment. */
 const SAME_LEFT = 0.5;
@@ -109,7 +128,10 @@ const PROSE_WORDS = 4;
 /** A column with this share of cells starting in lowercase is a sentence split at a false gutter. */
 const PROSE_LOWERCASE = 0.6;
 
-/** Header plus two rows: anything less is a pair of lines, not a table. */
+/**
+ * Header plus two rows: anything less is a pair of lines, not a table —
+ * except a summary, a header over a single row of figures (see isSummary).
+ */
 const MIN_ROWS = 3;
 
 /**
@@ -135,7 +157,15 @@ export function findTables(rows: LayoutRow[]): DetectedTable[] {
   const search = (start: number, end: number) => {
     if (end - start + 1 < MIN_ROWS) return;
     const table = bestTable(rows, start, end);
-    if (!table) return;
+    if (!table) {
+      // Nothing holds up across the whole block, which can mean two tables
+      // too close together to keep apart — a receipt's items and its
+      // totals, aligned differently. The widest gap is the likeliest seam.
+      const seam = widestGap(rows, start, end);
+      search(start, seam - 1);
+      search(seam, end);
+      return;
+    }
     // A block can hold more than one table — line items with the totals
     // set close beneath them in columns of their own.
     search(start, table.first - 1);
@@ -216,12 +246,42 @@ function blocks(rows: LayoutRow[]): [number, number][] {
   for (let index = 1; index <= rows.length; index++) {
     const ended =
       index === rows.length ||
-      (gap(index) > MAX_ROW_GAP * Math.min(rowSize(rows[index]), rowSize(rows[index - 1])) && !repeats(index));
+      sizeJump(rows[index - 1], rows[index]) ||
+      (gap(index) > MAX_ROW_GAP * Math.max(rowSize(rows[index]), rowSize(rows[index - 1])) &&
+        !(gap(index) <= HEADER_STEP * gap(index - 1)) &&
+        !repeats(index));
     if (!ended) continue;
     close(index - 1);
     start = index;
   }
   return out;
+}
+
+/**
+ * Whether one of two neighbouring lines is a heading: a single run of text
+ * clearly larger than the line beside it. A table is set in one size, and
+ * whatever sits above a heading — an address block that happens to line up
+ * with the columns below — belongs to something else. A larger line with
+ * several runs in it is left alone: it's a table's header row, often bold or
+ * capitals, and OCR's measure of size swings with both.
+ */
+function sizeJump(above: LayoutRow, below: LayoutRow): boolean {
+  const [larger, smaller] = rowSize(above) >= rowSize(below) ? [above, below] : [below, above];
+  return segmentsOf(larger).length === 1 && rowSize(larger) >= SIZE_JUMP * rowSize(smaller);
+}
+
+/** Index of the row below the widest gap in a block, relative to text size. */
+function widestGap(rows: LayoutRow[], start: number, end: number): number {
+  let seam = start + 1;
+  let widest = -1;
+  for (let index = start + 1; index <= end; index++) {
+    const gap = (rows[index].y - rows[index - 1].y) / Math.max(rowSize(rows[index]), rowSize(rows[index - 1]));
+    if (gap > widest) {
+      widest = gap;
+      seam = index;
+    }
+  }
+  return seam;
 }
 
 /**
@@ -278,8 +338,12 @@ function tableIn(
   // isn't enough: where a PDF sets each word as its own piece, a centred
   // "Thank you!" under a receipt is two pieces in one column, and a totals
   // block under the line items has columns of its own that aren't these.
+  // The first row is the header, and a header labels most of the columns: a
+  // "Closing balance: $1,902.66" line just above a statement fills two of
+  // its five.
   const cellsIn = (index: number) => place(segmentsOf(rows[index]), gutters)?.size ?? 0;
-  while (first < last && cellsIn(first) < 2) first++;
+  const columnCount = gutters.length + 1;
+  while (first < last && cellsIn(first) < Math.max(2, Math.ceil(columnCount / 2))) first++;
   while (last > first && cellsIn(last) < 2) last--;
   if (last - first + 1 < MIN_ROWS) return null;
 
@@ -328,13 +392,17 @@ function tableIn(
   }
 
   const table = mergeRows(placed, columns, size);
-  if (table.length < MIN_ROWS) return null;
+  if (table.length < MIN_ROWS && !isSummary(table)) return null;
 
   const numeric = Array.from({ length: columns }, (_, column) => isNumericColumn(table.slice(1), column));
   if (columns === 2 && !mostlyNumeric(table.slice(1), 1, TWO_COLUMN_NUMERIC_SHARE)) return null;
-  // A column holding a single cell is a stray alignment, not a column.
+  // A column holding a single cell is a stray alignment, not a column —
+  // unless it's a row's label at the table's edge.
   for (let column = 0; column < columns; column++) {
-    if (table.filter((row) => row[column] !== "").length < 2) return null;
+    const filled = table.filter((row) => row[column] !== "");
+    if (filled.length >= 2) continue;
+    const others = filled.length === 1 ? filled[0].filter((cell) => cell !== "").length - 1 : 0;
+    if (!isRowLabel(column, columns, others)) return null;
   }
   if (looksLikeProse(placed, columns)) return null;
 
@@ -379,12 +447,14 @@ function guttersOf(rows: Segment[][], size: number): [number, number][] {
 function withoutLoneColumns(segments: Segment[][], gutters: [number, number][]): [number, number][] {
   const kept = [...gutters];
   for (;;) {
-    const rowsIn = Array<number>(kept.length + 1).fill(0);
-    for (const row of segments) {
-      const used = new Set(row.map((segment) => columnOf(segment, kept)).filter((column) => column !== null));
-      for (const column of used) rowsIn[column as number]++;
-    }
-    const lone = rowsIn.findIndex((count) => count < 2);
+    const columns = kept.length + 1;
+    const used = segments.map(
+      (row) => new Set(row.map((segment) => columnOf(segment, kept)).filter((column): column is number => column !== null))
+    );
+    const lone = Array.from({ length: columns }, (_, column) => column).findIndex((column) => {
+      const rows = used.filter((row) => row.has(column));
+      return rows.length < 2 && !(rows.length === 1 && isRowLabel(column, columns, rows[0].size - 1));
+    });
     if (lone === -1 || kept.length === 0) return kept;
 
     const width = (gutter: [number, number] | undefined) => (gutter ? gutter[1] - gutter[0] : Infinity);
@@ -413,6 +483,26 @@ function place(segments: Segment[], gutters: [number, number][]): Map<number, Se
 }
 
 /**
+ * A header over one row of figures: an invoice's tax summary, a statement's
+ * balances. Two lines of text practically never line up across three
+ * columns with numbers in two of them, so this is safe to accept below the
+ * usual minimum.
+ */
+function isSummary(table: string[][]): boolean {
+  return table.length === 2 && table[0].length >= 3 && table[1].filter(isNumeric).length >= 2;
+}
+
+/**
+ * Whether a column that only one row uses is that row's label: at the edge of
+ * the table, beside cells of the row in at least two of its other columns. A
+ * summary table's "Total" is set to the left of the column it totals, under
+ * no header at all.
+ */
+function isRowLabel(column: number, columns: number, otherCells: number): boolean {
+  return (column === 0 || column === columns - 1) && otherCells >= 2;
+}
+
+/**
  * The column a segment sits in, or null when it runs right across a gutter.
  *
  * A segment may reach *into* a gutter without crossing it. Gutters are found
@@ -438,23 +528,36 @@ function columnOf(segment: Segment, gutters: [number, number][]): number | null 
  * centred vertically against a tall one, so the quantity and price sit on a
  * baseline of their own between the description's two lines. A baseline joins
  * the row above when it's close enough to be part of it and either fills only
- * cells that row left empty, or adds a wrapped line to a cell of words. A
- * baseline that fills most of the columns again, or brings a number into a
- * cell that already has one, is the next row.
+ * cells that row left empty, or adds wrapped lines to cells of words. A
+ * baseline that brings a number into a cell that already has one is the next
+ * row.
+ *
+ * What counts as close enough comes from the table itself where it can. A
+ * table whose cells wrap shows two kinds of gap between baselines — the
+ * leading inside a cell, and the padding between rows — and the line between
+ * them is exact for that table, where no fixed figure is: one writer sets a
+ * wrapped cell's lines further apart than another sets its rows. There,
+ * every line of a multi-line header lands in the header, however many
+ * columns it spans. A table with only one kind of gap has no wrapped cells
+ * to learn from, and falls back to a fixed limit and a stricter test: only a
+ * baseline filling few of the columns can be a wrapped line.
  */
 function mergeRows(placed: { y: number; cells: Map<number, Segment[]> }[], columns: number, size: number): string[][] {
   const rows: { y: number; cells: string[] }[] = [];
+  const leading = leadingLimit(placed.map((row) => row.y));
 
   for (const { y, cells } of placed) {
     const texts = new Map([...cells].map(([column, segments]) => [column, segments.map((s) => joinItems(s.items)).join(" ")]));
     const current = rows[rows.length - 1];
-    const near = current !== undefined && y - current.y <= SAME_ROW_GAP * size;
+    const near = current !== undefined && y - current.y <= (leading ?? SAME_ROW_GAP * size);
 
     if (current && near) {
-      const overlaps = [...texts.keys()].some((column) => current.cells[column] !== "");
-      const partial = texts.size <= Math.ceil(columns / 2);
-      const words = [...texts.values()].every((text) => !isNumeric(text));
-      if (!overlaps || (partial && words)) {
+      // Only what lands in an already-filled cell has to read as a wrapped
+      // line; figures filling the row's empty cells are the rest of it.
+      const shared = [...texts].filter(([column]) => current.cells[column] !== "");
+      const partial = leading !== null || texts.size <= Math.ceil(columns / 2);
+      const words = shared.every(([, text]) => !isNumeric(text));
+      if (shared.length === 0 || (partial && words)) {
         for (const [column, text] of texts) current.cells[column] = joinWrapped(current.cells[column], text);
         current.y = y;
         continue;
@@ -467,6 +570,27 @@ function mergeRows(placed: { y: number; cells: Map<number, Segment[]> }[], colum
   }
 
   return rows.map((row) => row.cells.map((cell) => cell.replace(/\s+/g, " ").trim()));
+}
+
+/**
+ * The largest gap between baselines that's still a line inside a cell, when
+ * the table's gaps fall into two clear groups — or null when they don't.
+ */
+function leadingLimit(baselines: number[]): number | null {
+  const gaps = baselines
+    .slice(1)
+    .map((y, index) => y - baselines[index])
+    .sort((a, b) => a - b);
+  let best: number | null = null;
+  let widest = ROW_PITCH_STEP;
+  for (let index = 1; index < gaps.length; index++) {
+    const step = gaps[index] / gaps[index - 1];
+    if (step >= widest) {
+      widest = step;
+      best = (gaps[index] + gaps[index - 1]) / 2;
+    }
+  }
+  return best;
 }
 
 /** Rejoins a wrapped cell, undoing hyphenation that only existed to fit the column. */
