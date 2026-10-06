@@ -1,7 +1,7 @@
 # Convert to Markdown
 
 Converts PDFs, Office and OpenDocument files, ebooks, saved web pages, email,
-notebooks, subtitle tracks, spreadsheets and images in your vault into Markdown
+notebooks, subtitle tracks, spreadsheets, plain text and images in your vault into Markdown
 notes, images and all.
 
 No LLM, no API key, no cloud service, no external binary. Nothing you convert
@@ -37,7 +37,7 @@ else works immediately and offline.
 
 Supported: `.pdf` · `.docx` `.pptx` `.xlsx` (and `.docm` `.pptm` `.xlsm`) ·
 `.odt` `.ods` `.odp` · `.epub` · `.html` `.htm` `.mhtml` `.mht` · `.eml` ·
-`.ipynb` · `.vtt` `.srt` · `.csv` `.tsv` · `.png` `.jpg` `.jpeg` `.webp`
+`.ipynb` · `.vtt` `.srt` · `.csv` `.tsv` · `.txt` · `.png` `.jpg` `.jpeg` `.webp`
 `.gif` `.bmp` `.tif` `.tiff`
 
 Pairs well with [Doc Preview](https://community.obsidian.md/plugins/doc-preview),
@@ -74,6 +74,7 @@ pages_converted: 40/40      # .pdf
 chapters_converted: 31/31   # .epub
 cues_converted: 812/812     # .vtt, .srt
 cells_converted: 41/41      # .ipynb
+lines_converted: 120/120    # .txt
 ```
 
 ## Compared to markitdown
@@ -119,6 +120,7 @@ Per format, what's read and what it buys:
 | `.ipynb` | Cells, and the richest usable form of each output | Prose as prose, code fenced with its language, plots embedded, DataFrames as real tables rather than padded digits |
 | `.vtt` `.srt` | Cue timings, `<v>` voices, `>>` and dialogue dashes | A readable transcript instead of 800 numbered stanzas — see [Transcripts](#transcripts) |
 | `.csv` `.tsv` | RFC 4180, with the delimiter worked out from the file | Quoted fields containing commas and line breaks survive; a semicolon-separated European export isn't read as one column |
+| `.txt` | Lines, and the encoding — from a byte-order mark, else UTF-8, else windows-1252 | The note reads exactly as the file did: a stray `#` or a row of `===` doesn't become a heading, indentation doesn't become a code block, typed `-` lists and `>` quotes stay lists and quotes. An assumed encoding is named in the frontmatter |
 | `.png` `.jpg` `.webp` `.gif` `.bmp` `.tiff` | Local OCR (Tesseract) | Text off a screenshot or photo, laid out as paragraphs rather than one line per pixel row |
 
 Macro-enabled variants (`.docm`, `.pptm`, `.xlsm`) are the same parts plus a

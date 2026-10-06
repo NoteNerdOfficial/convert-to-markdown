@@ -1,7 +1,7 @@
 {
   "name": "convert-to-markdown",
   "version": "0.1.0",
-  "description": "Obsidian plugin: convert PDF, Office, OpenDocument, EPUB, HTML, email, notebooks, subtitles, CSV and images into clean Markdown, deterministically.",
+  "description": "Obsidian plugin: convert PDF, Office, OpenDocument, EPUB, HTML, email, notebooks, subtitles, CSV, plain text and images into clean Markdown, deterministically.",
   "main": "main.js",
   "scripts": {
     "dev": "node esbuild.config.mjs",

@@ -9,6 +9,7 @@ import {
 } from "../html";
 import { alreadyTitled, escapeInline, heading, joinBlocks, yamlValue } from "../markdown";
 import { decodeHeaderText, firstHeader, flattenParts, MimePart, parseMime, partText } from "../mime";
+import { renderPlainText } from "../plaintext";
 import { ExtractResult } from "./types";
 
 /**
@@ -241,27 +242,6 @@ async function renderPage(
     .map((src) => src.slice(4));
 
   return { lines: renderHtml(root, { images }), dropped, placedCids };
-}
-
-/**
- * A plain-text body, kept as text.
- *
- * The only structure a text email has is its quoting — `>` at the start of a
- * line, which is already Markdown's blockquote and so needs nothing done to
- * it. Everything else stays exactly as typed, since guessing that a line of
- * dashes was meant as a rule, or that an indented block was meant as code, is
- * how a converter invents structure the sender didn't write.
- */
-function renderPlainText(text: string): string[] {
-  const lines: string[] = [];
-  for (const line of text.replace(/\r\n?/g, "\n").split("\n")) {
-    // A quoted line is a blockquote already; everything else is escaped so
-    // that a stray asterisk or underscore in prose stays visible.
-    lines.push(/^\s*>/.test(line) ? line : escapeInline(line));
-  }
-  // Text mail is hard-wrapped, so a single newline is a real line break here
-  // rather than a paragraph continuation — the lines are kept as lines.
-  return [lines.join("\n").trim()];
 }
 
 async function renderAttachments(

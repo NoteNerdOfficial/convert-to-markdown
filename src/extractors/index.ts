@@ -9,6 +9,7 @@ import { extractOpenDocument } from "./opendocument";
 import { extractPdf } from "./pdf";
 import { extractPptx } from "./pptx";
 import { extractSubtitles } from "./subtitles";
+import { extractTxt } from "./txt";
 import { extractXlsx } from "./xlsx";
 import { Extractor, ExtractResult } from "./types";
 
@@ -62,6 +63,7 @@ const EXTRACTORS: Record<string, Extractor> = {
   ipynb: extractIpynb,
   csv: extractCsv,
   tsv: extractTsv,
+  txt: extractTxt,
   png: extractImage,
   jpg: extractImage,
   jpeg: extractImage,

@@ -2,8 +2,8 @@
  * Turning bytes into text, for the formats that are text to begin with.
  *
  * The OOXML extractors never need this — a zip entry's encoding is fixed by
- * the spec at UTF-8 — but a `.srt` off the internet, a `.csv` out of Excel and
- * an email body all arrive as bytes whose encoding has to be worked out before
+ * the spec at UTF-8 — but a `.srt` off the internet, a `.csv` out of Excel, a
+ * `.txt` from anywhere and an email body all arrive as bytes whose encoding has to be worked out before
  * a single character can be read.
  */
 
@@ -26,22 +26,44 @@ const BOMS: { bytes: number[]; encoding: string }[] = [
  * costs the whole conversion.
  */
 export function decodeText(data: Buffer, declaredCharset?: string | null): string {
+  return decodeTextWithEncoding(data, declaredCharset).text;
+}
+
+export interface DecodedText {
+  text: string;
+  encoding: string;
+  /**
+   * True only for the windows-1252 last resort — the one branch where nothing
+   * in or around the file said what it was, so the encoding is an assumption
+   * the reader may want to know about.
+   */
+  guessed: boolean;
+}
+
+/** `decodeText`, also saying which encoding it settled on and how. */
+export function decodeTextWithEncoding(data: Buffer, declaredCharset?: string | null): DecodedText {
   for (const { bytes, encoding } of BOMS) {
-    if (startsWith(data, bytes)) return decodeWith(data.subarray(bytes.length), encoding) ?? "";
+    if (startsWith(data, bytes)) {
+      return { text: decodeWith(data.subarray(bytes.length), encoding) ?? "", encoding, guessed: false };
+    }
   }
 
   if (declaredCharset) {
     const decoded = decodeWith(data, declaredCharset);
-    if (decoded !== null) return isWindows1252(declaredCharset) ? repairC1(decoded) : decoded;
+    if (decoded !== null) {
+      const text = isWindows1252(declaredCharset) ? repairC1(decoded) : decoded;
+      return { text, encoding: declaredCharset.trim().toLowerCase(), guessed: false };
+    }
   }
 
   // `fatal` is what makes this a test rather than a decode: UTF-8 is
   // self-validating, so a file that decodes cleanly as UTF-8 essentially is
   // UTF-8, and one that throws is definitely something else.
   const utf8 = decodeWith(data, "utf-8", true);
-  if (utf8 !== null) return utf8;
+  if (utf8 !== null) return { text: utf8, encoding: "utf-8", guessed: false };
 
-  return repairC1(decodeWith(data, "windows-1252") ?? data.toString("latin1"));
+  const text = repairC1(decodeWith(data, "windows-1252") ?? data.toString("latin1"));
+  return { text, encoding: "windows-1252", guessed: true };
 }
 
 /**
