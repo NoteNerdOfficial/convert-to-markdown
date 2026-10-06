@@ -309,6 +309,17 @@ gibberish, and counted in the conversion notes. Large display type reversed out
 of a coloured background is the common thing OCR misses; check the note against
 the image when the confidence warning appears.
 
+**Tables in a scan or a photo come out as tables**, found the same way as in a
+PDF: from where the words sit. Tesseract's own layout analysis reads a table a
+column at a time — every date, then every description, then every amount — and
+can cut a narrow column of figures off into a block of its own and misread it,
+so a page that looks like it holds a table is read a second time as one block
+of lines, which keeps each row whole. A page tilted on the scanner or in a
+photo is straightened first, so rows don't drift into each other. Because a
+misread digit is a wrong amount rather than a typo, a table read with less
+than 80% confidence is flagged, and anything OCR read in a table's area that
+didn't make it into the table is named.
+
 Two systematic artefacts are repaired afterwards, both of them the same kind of
 thing as the PDF extractor's de-hyphenation — undoing a known, predictable
 distortion rather than guessing at content.
@@ -365,8 +376,14 @@ conversion says which one.
   left as text. Two columns become a table only when the right one is
   numbers (a receipt, an invoice's totals); two columns of words are as
   often labels beside values. A missed table reads as before, a run of words;
-  cells merged across columns and tables on scanned pages aren't handled
-  yet.
+  cells merged across columns aren't handled yet.
+- **On a scan or photo, columns closer than a stretched word space read as
+  one.** OCR reports words rather than runs of text, so words are joined back
+  into runs before tables are looked for, and two amount columns set tight
+  together end up in one cell. A photo taken at an angle or of paper that
+  isn't flat has no straight rows to find; tables there aren't looked for,
+  and the note says so. A page that looks like it holds a table takes a
+  second OCR pass, roughly doubling its time.
 - **A scanned page is read through its page image**, which is what a scan
   actually is. A page with no text layer whose lettering is drawn as vector
   outlines instead has no image to hand the recogniser, and is reported as

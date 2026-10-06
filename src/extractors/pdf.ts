@@ -5,7 +5,15 @@ import { findTables, joinItems } from "../layout/tables";
 import { bullet, escapeInline, heading, joinBlocks, squashSpaces, table } from "../markdown";
 import { CDN_OCR, OcrProvider } from "../ocr";
 import { encodePng } from "../png";
-import { forPage, OcrEngineError, recognize, Recognition } from "../recognize";
+import {
+  forPage,
+  hasBlocks,
+  LOW_TABLE_CONFIDENCE,
+  OcrEngineError,
+  recognitionMarkdown,
+  recognize,
+  Recognition,
+} from "../recognize";
 import { readFormFields } from "./pdfForms";
 import { ExtractResult } from "./types";
 
@@ -126,7 +134,7 @@ export async function extractPdf(
     pages.forEach((pageLines, index) => {
       const recognised = scanned.get(index + 1);
       if (recognised) {
-        for (const paragraph of recognised.paragraphs) lines.push("", escapeInline(paragraph), "");
+        lines.push(...recognitionMarkdown(recognised));
       }
       lines.push(...renderPage(pageLines, bodySize, bodyWidth));
       // A PDF's drawing operations don't interleave with its text in reading
@@ -165,7 +173,7 @@ function coverageOf(pageCount: number, pages: Line[][], scanned: Map<number, Rec
 }
 
 function hasText(recognition: Recognition | undefined): boolean {
-  return recognition !== undefined && recognition.paragraphs.length > 0;
+  return hasBlocks(recognition);
 }
 
 function pdfWarnings(
@@ -192,6 +200,34 @@ function pdfWarnings(
       } read by OCR instead (${listPages(read.map(([page]) => page))}). That part of the note is a recognition ` +
         `rather than an extraction and can be wrong — lowest confidence was ${lowest}%.`
     );
+
+    // Named by page, not counted: a doubtful table is checked against the
+    // page it came from.
+    const doubtful = read
+      .filter(([, recognition]) =>
+        recognition.blocks.some((block) => block.kind === "table" && block.confidence < LOW_TABLE_CONFIDENCE)
+      )
+      .map(([page]) => page);
+    if (doubtful.length > 0) {
+      warnings.push(
+        `Tables read by OCR with confidence below ${LOW_TABLE_CONFIDENCE}% (${listPages(doubtful)}) — check the ` +
+          "figures against the original."
+      );
+    }
+    for (const [page, recognition] of read) {
+      if (recognition.unplaced.length === 0) continue;
+      warnings.push(
+        `On page ${page}, OCR read these in a table's area, but they aren't in the table: ` +
+          `${recognition.unplaced.map(escapeInline).join(", ")} — check the table against the original.`
+      );
+    }
+    const unsearched = read.filter(([, recognition]) => recognition.tablesSkipped);
+    if (unsearched.length > 0) {
+      warnings.push(
+        `Tables weren't looked for on ${listPages(unsearched.map(([page]) => page))}, because ` +
+          `${unsearched[0][1].tablesSkipped}. Any table there reads as text.`
+      );
+    }
 
     const discarded = read.reduce((total, [, recognition]) => total + recognition.discarded, 0);
     if (discarded > 0) {
@@ -289,7 +325,9 @@ async function readScannedPages(
       // A page split into horizontal strips by the scanner is several images
       // in reading order; merging them keeps the page one page.
       results.set(pageNumber, {
-        paragraphs: recognitions.flatMap((recognition) => recognition.paragraphs),
+        blocks: recognitions.flatMap((recognition) => recognition.blocks),
+        tablesSkipped: recognitions.find((recognition) => recognition.tablesSkipped)?.tablesSkipped,
+        unplaced: recognitions.flatMap((recognition) => recognition.unplaced),
         confidence: Math.min(...recognitions.map((recognition) => recognition.confidence)),
         discarded: recognitions.reduce((total, recognition) => total + recognition.discarded, 0),
       });

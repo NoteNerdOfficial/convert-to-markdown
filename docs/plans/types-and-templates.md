@@ -268,9 +268,9 @@ strictly better.
 | # | Phase | Status | Notes |
 |---|---|---|---|
 | 0 | **Embed original** setting | Done | PDF only: images embed themselves, and Obsidian can't show other formats inline. |
-| 1 | **Layout model** + OCR word boxes kept | Partly done | Built only as far as phase 2 needed: `src/layout/tables.ts` works on positioned words (`LayoutRow`/`LayoutItem`), not pdf.js items. Keeping OCR word boxes moves to phase 3, and `ExtractResult.layout` to phase 5, where each is first used. |
+| 1 | **Layout model** + OCR word boxes kept | Done, except `ExtractResult.layout` | `src/layout/tables.ts` works on positioned words (`LayoutRow`/`LayoutItem`), from pdf.js and from OCR alike. `ExtractResult.layout` moves to phase 5, where it's first used. |
 | 2 | **Table detection on text PDFs** | Done | Columns are strips no row crosses, so prose and monospaced text stay text. Two columns are a table only when the right one is numbers. |
-| 3 | **Table detection on OCR** (images + scanned PDF pages) | | Confidence reporting and the tilt bail-out. Feeds Tesseract's word boxes to the same detector. |
+| 3 | **Table detection on OCR** (images + scanned PDF pages) | Done | Words joined into runs, page tilt straightened rather than refused; a second single-block OCR pass when a page hints at a table, since Tesseract's layout analysis cuts columns of figures apart. Tables under 80% confidence flagged; words read in a table's area but missing from it named. Bails out only on warped pages. |
 | 4 | **Fillable form fields** | Done | Field \| Value table, `form_fields_filled` count, empty fields named. |
 | 5 | **Type framework + Invoice/receipt** with built-in template | | Pairs, fields, normalization, checks, provenance keys, the "as…" UI. |
 | 6 | **Template notes + extra labels** | Engine done | `src/template.ts` renders templates and holds the default invoice template. Still to do: settings UI, template-note lookup, extra labels. |

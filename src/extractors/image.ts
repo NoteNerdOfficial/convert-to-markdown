@@ -1,7 +1,7 @@
 import { AssetSink } from "../assets";
 import { escapeInline, joinBlocks } from "../markdown";
 import { CDN_OCR, OcrProvider } from "../ocr";
-import { recognize } from "../recognize";
+import { LOW_TABLE_CONFIDENCE, recognitionMarkdown, recognize } from "../recognize";
 import { ExtractResult } from "./types";
 
 /**
@@ -32,10 +32,11 @@ export async function extractImage(
   if (!format) throw new Error("not a readable image (unrecognised file signature)");
 
   const embed = await assets.save(data, format);
-  const { paragraphs, confidence, discarded } = await recognize(data, ocr);
+  const recognition = await recognize(data, ocr);
+  const { blocks, confidence, discarded } = recognition;
 
   const warnings: string[] = [];
-  if (paragraphs.length === 0) {
+  if (blocks.length === 0) {
     warnings.push("OCR found no text in this image.");
   } else if (confidence < 70) {
     warnings.push(
@@ -47,12 +48,28 @@ export async function extractImage(
       `${discarded} unreadable region${discarded === 1 ? "" : "s"} dropped — usually text over a photo, or something that isn't text at all.`
     );
   }
+  // A misread digit in a table is a wrong amount, not a typo, so tables get a
+  // stricter bar than the text around them.
+  const doubtful = blocks.filter((block) => block.kind === "table" && block.confidence < LOW_TABLE_CONFIDENCE);
+  if (doubtful.length > 0) {
+    const which = doubtful.length === 1 ? "A table was" : `${doubtful.length} tables were`;
+    warnings.push(`${which} read with OCR confidence below ${LOW_TABLE_CONFIDENCE}% — check the figures against the image.`);
+  }
+  if (recognition.unplaced.length > 0) {
+    warnings.push(
+      `OCR read these in a table's area, but they aren't in the table: ${recognition.unplaced.map(escapeInline).join(", ")} — ` +
+        "check the table against the image."
+    );
+  }
+  if (recognition.tablesSkipped) {
+    warnings.push(`Tables weren't looked for, because ${recognition.tablesSkipped}. Any table reads as text.`);
+  }
   if (!embed) warnings.push("The image itself isn't embedded (image extraction is off).");
 
   return {
     markdown: joinBlocks([
       ...(embed ? [embed, ""] : []),
-      ...paragraphs.flatMap((paragraph) => [escapeInline(paragraph), ""]),
+      ...recognitionMarkdown(recognition),
     ]),
     warnings,
   };

@@ -1,6 +1,7 @@
 import { createWorker, PSM, type Worker } from "tesseract.js";
+import { findTables, LayoutItem, LayoutRow } from "./layout/tables";
+import { escapeInline, squashSpaces, table } from "./markdown";
 import { OcrEngineFiles, OcrProvider } from "./ocr";
-import { squashSpaces } from "./markdown";
 
 /**
  * Running Tesseract, shared by the two things that need reading rather than
@@ -23,12 +24,45 @@ declare const __TESSERACT_WORKER_SOURCE__: string;
 let workerUrl: string | null = null;
 
 export interface Recognition {
-  /** Recognised text, one entry per paragraph Tesseract's layout analysis found. */
-  paragraphs: string[];
+  /** What was read, in reading order: paragraphs, and tables where the words line up as one. */
+  blocks: OcrBlock[];
   /** Tesseract's own confidence for the whole image, 0–100. */
   confidence: number;
   /** Paragraphs discarded as too uncertain to be text at all. */
   discarded: number;
+  /** Why tables weren't looked for, when they weren't. */
+  tablesSkipped?: string;
+  /**
+   * Words read inside a table's area that aren't in the table — the pass
+   * read for tables missed them. Named so the table can be checked.
+   */
+  unplaced: string[];
+}
+
+export type OcrBlock =
+  | { kind: "text"; text: string }
+  /** `confidence` is the recogniser's average over the table's words, 0–100. */
+  | { kind: "table"; rows: string[][]; numeric: boolean[]; confidence: number };
+
+/**
+ * Below this average confidence a table read by OCR is flagged for checking.
+ * Higher than the bar for running text: a misread letter in a sentence is
+ * obvious, a misread digit in a column of amounts isn't.
+ */
+export const LOW_TABLE_CONFIDENCE = 80;
+
+/** The recognised blocks as Markdown lines. */
+export function recognitionMarkdown(recognition: Recognition): string[] {
+  return recognition.blocks.flatMap((block) =>
+    block.kind === "text"
+      ? ["", escapeInline(block.text), ""]
+      : ["", ...table(block.rows.map((row) => row.map((cell) => squashSpaces(escapeInline(cell)))), block.numeric), ""]
+  );
+}
+
+/** Whether anything at all was read. */
+export function hasBlocks(recognition: Recognition | undefined): boolean {
+  return recognition !== undefined && recognition.blocks.length > 0;
 }
 
 /**
@@ -75,7 +109,20 @@ export async function recognize(data: Buffer, ocr: OcrProvider): Promise<Recogni
     // `blocks` is not part of the default output; without asking for it, the
     // only thing available is a flat string.
     const { data: result } = await worker.recognize(data, {}, { blocks: true, text: true });
-    return { ...buildParagraphs(result.blocks ?? []), confidence: result.confidence ?? 0 };
+    const text = result.blocks ?? [];
+
+    // That same layout analysis is what breaks tables: it cuts a column of
+    // figures into blocks of its own, and a narrow one — the whole-number
+    // part of a receipt's prices — gets read as letters. Read as one uniform
+    // block instead, every row of a table comes back as a line, digits
+    // intact. That costs a second pass, so it's only made when the first
+    // shows rows with separate runs of text in them.
+    let tables = text;
+    if (mayHoldTable(text)) {
+      await worker.setParameters({ tessedit_pageseg_mode: PSM.SINGLE_BLOCK });
+      tables = (await worker.recognize(data, {}, { blocks: true })).data.blocks ?? [];
+    }
+    return { ...readBlocks(text, tables), confidence: result.confidence ?? 0 };
   } finally {
     await worker.terminate();
   }
@@ -89,6 +136,8 @@ interface Box {
 }
 
 interface OcrLine {
+  /** Tesseract's own line, so that lines read into a table can be left out of the paragraphs. */
+  source: RecognisedLine;
   text: string;
   confidence: number;
   box: Box;
@@ -132,8 +181,13 @@ const MIN_FILL_RATIO = 0.6;
  * runs to the right margin was wrapped, so whatever comes next at the same
  * left margin continues it; a line that stops short ended its paragraph.
  */
-function buildParagraphs(blocks: RecognisedBlock[]): { paragraphs: string[]; discarded: number } {
-  const groups = readLines(blocks);
+function buildParagraphs(
+  blocks: RecognisedBlock[],
+  inTables: Set<RecognisedLine>
+): { paragraphs: { text: string; box: Box }[]; discarded: number } {
+  const groups = readLines(blocks)
+    .map((group) => group.filter((line) => !inTables.has(line.source)))
+    .filter((group) => group.length > 0);
   if (groups.length === 0) return { paragraphs: [], discarded: 0 };
 
   const all = groups.flat();
@@ -142,7 +196,7 @@ function buildParagraphs(blocks: RecognisedBlock[]): { paragraphs: string[]; dis
   const units = groups.flatMap((group) => splitOnGaps(group, lineHeight));
   const merged = mergeWrapped(units, all, lineHeight);
 
-  const paragraphs: string[] = [];
+  const paragraphs: { text: string; box: Box }[] = [];
   let discarded = 0;
 
   for (const unit of merged) {
@@ -153,10 +207,250 @@ function buildParagraphs(blocks: RecognisedBlock[]): { paragraphs: string[]; dis
 
     const confidence = average(unit.map((line) => line.confidence));
     if (confidence < MIN_PARAGRAPH_CONFIDENCE) discarded++;
-    else paragraphs.push(text);
+    else paragraphs.push({ text, box: unit[0].box });
   }
 
   return { paragraphs, discarded };
+}
+
+/**
+ * Paragraphs and tables, in reading order.
+ *
+ * Tesseract's own layout analysis is no help with tables: it reads a table as
+ * a column of text blocks, so a statement comes out as every date, then
+ * every description, then every amount. The words themselves still sit where
+ * they were printed, though, and that's all the table detector the PDF
+ * extractor uses needs. So the words are laid out again as rows across the
+ * page, the same detector finds the tables, and the lines of the ordinary
+ * reading that fall inside one are left out of the paragraphs.
+ *
+ * `text` is the ordinary reading; `tables` is the reading the rows are taken
+ * from, the same one unless a second pass was made for tables.
+ */
+function readBlocks(text: RecognisedBlock[], tables: RecognisedBlock[]): Omit<Recognition, "confidence"> {
+  const { rows, tilt, skipped } = layoutRows(tables);
+  const straighten = (x: number, y: number) => ({ x: x + tilt * y, y: y - tilt * x });
+
+  const found: { block: OcrBlock; box: Box }[] = [];
+  for (const detected of skipped ? [] : findTables(rows)) {
+    const words = rows.slice(detected.first, detected.last + 1).flatMap((row) => row.items as OcrWord[]);
+    const first = rows[detected.first];
+    const last = rows[detected.last];
+    found.push({
+      block: { kind: "table", rows: detected.rows, numeric: detected.numeric, confidence: average(words.map((w) => w.confidence)) },
+      // From the top of the first row's letters to below the last row's
+      // descenders, in straightened coordinates.
+      box: {
+        x0: detected.left,
+        x1: detected.right,
+        y0: first.y - Math.max(...first.items.map((item) => item.size)),
+        y1: last.y + 0.5 * Math.max(...last.items.map((item) => item.size)),
+      },
+    });
+  }
+
+  // A line of the ordinary reading belongs to a table when its middle falls
+  // inside one.
+  const inside = (bbox: Box) => {
+    const middle = straighten((bbox.x0 + bbox.x1) / 2, (bbox.y0 + bbox.y1) / 2);
+    return found.find(({ box }) => middle.x >= box.x0 && middle.x <= box.x1 && middle.y >= box.y0 && middle.y <= box.y1);
+  };
+  const inTables = new Set<RecognisedLine>();
+  const unplaced: string[] = [];
+  for (const line of text.flatMap((block) => (block.paragraphs ?? []).flatMap((paragraph) => paragraph.lines ?? []))) {
+    if (!line.bbox || !inside(line.bbox)) continue;
+    inTables.add(line);
+    // When the table came from a second reading, anything the first read
+    // confidently there should be in it somewhere. What isn't is named
+    // rather than lost with the line it was on.
+    if (tables === text) continue;
+    for (const word of line.words ?? []) {
+      const token = (word.text ?? "").trim();
+      const table = word.bbox && inside(word.bbox);
+      if (!table || table.block.kind !== "table" || token === "" || (word.confidence ?? 0) < MIN_PARAGRAPH_CONFIDENCE) continue;
+      const cells = table.block.rows.flat();
+      if (!cells.some((cell) => cell.includes(token))) unplaced.push(token);
+    }
+  }
+
+  const { paragraphs, discarded } = buildParagraphs(text, inTables);
+  const out: { block: OcrBlock; box: Box }[] = paragraphs.map((paragraph) => {
+    const topLeft = straighten(paragraph.box.x0, paragraph.box.y0);
+    const bottomRight = straighten(paragraph.box.x1, paragraph.box.y1);
+    return {
+      block: { kind: "text", text: paragraph.text },
+      box: { x0: topLeft.x, y0: topLeft.y, x1: bottomRight.x, y1: bottomRight.y },
+    };
+  });
+  // Each table goes in before the first paragraph below it that shares some
+  // of its width, as the PDF extractor places them.
+  for (const entry of found) {
+    const next = out.findIndex(
+      ({ block, box }) =>
+        block.kind === "text" && box.y0 > entry.box.y0 && box.x0 < entry.box.x1 && box.x1 > entry.box.x0
+    );
+    out.splice(next === -1 ? out.length : next, 0, entry);
+  }
+
+  return {
+    blocks: out.map((entry) => entry.block),
+    discarded,
+    unplaced,
+    ...(skipped ? { tablesSkipped: skipped } : {}),
+  };
+}
+
+/** Rows with separate runs of text this many times over hint at a table. */
+const TABLE_HINT_ROWS = 3;
+
+/** Whether the ordinary reading hints at a table worth a second pass. */
+function mayHoldTable(blocks: RecognisedBlock[]): boolean {
+  const { rows, skipped } = layoutRows(blocks);
+  return !skipped && rows.filter((row) => row.items.length > 1).length >= TABLE_HINT_ROWS;
+}
+
+interface OcrWord extends LayoutItem {
+  confidence: number;
+}
+
+/**
+ * Words below this confidence are left out of table layout: specks and
+ * smudges read as letters. Set low on purpose — a word read badly is still
+ * in the note, marked by the table's confidence, where a word left out would
+ * just be missing.
+ */
+const MIN_WORD_CONFIDENCE = 10;
+
+/** A table's border, read as text. */
+const RULE = /^[|_]+$/;
+
+/**
+ * How far, in line heights, baselines can disagree across the page once
+ * the page's overall tilt is taken out, before rows can't be trusted.
+ */
+const MAX_WARP = 0.5;
+
+/**
+ * The page's words as rows across the page, in coordinates that grow down
+ * the page as the table detector expects.
+ *
+ * A scan or a photo is rarely square to the page, and the word boxes
+ * Tesseract reports are in the image's own coordinates, so a row of a table
+ * runs uphill or down. Over a page's width, a tilt of a degree or two moves
+ * a row by more than its own height — enough to tear it in half. So the
+ * words are first turned back by the page's tilt, measured as the median
+ * slope of Tesseract's baselines. What that can't fix is a page whose lines
+ * disagree with each other — a photo taken at an angle, paper that curls —
+ * and there tables aren't looked for at all, and the note says why.
+ */
+function layoutRows(blocks: RecognisedBlock[]): {
+  rows: LayoutRow[];
+  /** The page's tilt, as the slope of its baselines. */
+  tilt: number;
+  skipped?: string;
+} {
+  const lines = blocks.flatMap((block) => (block.paragraphs ?? []).flatMap((paragraph) => paragraph.lines ?? []));
+  const sloped = lines.filter((line) => line.baseline && line.baseline.x1 - line.baseline.x0 > 0);
+  const slopes = sloped.map((line) => {
+    const { x0, y0, x1, y1 } = line.baseline as Box;
+    return (y1 - y0) / (x1 - x0);
+  });
+  const tilt = median(slopes);
+  const height = median(lines.map(lineHeight)) || 1;
+
+  const words = lines.flatMap((line) => (line.words ?? []).map((word) => ({ word, line })));
+  const xs = words.flatMap(({ word }) => (word.bbox ? [word.bbox.x0, word.bbox.x1] : []));
+  const width = xs.length > 0 ? Math.max(...xs) - Math.min(...xs) : 0;
+  const warp = sloped.filter((_, index) => Math.abs(slopes[index] - tilt) * width > MAX_WARP * height).length;
+  if (sloped.length >= 3 && warp > sloped.length * 0.25) {
+    return {
+      rows: [],
+      tilt,
+      skipped: "its lines aren't straight across the page — a photo taken at an angle, or paper that isn't flat",
+    };
+  }
+
+  // Turning the page back by its tilt: for angles this small, shifting each
+  // point by the slope is the rotation to well under a pixel.
+  const placed: { word: OcrWord; y: number }[] = [];
+  for (const { word, line } of words) {
+    const text = (word.text ?? "").trim();
+    if (!word.bbox || text === "" || RULE.test(text) || (word.confidence ?? 0) < MIN_WORD_CONFIDENCE) continue;
+    const { x0, x1 } = word.bbox;
+    const baseline = line.baseline ?? { x0, y0: word.bbox.y1, x1, y1: word.bbox.y1 };
+    const along = (x0 + x1) / 2;
+    const y = baseline.y0 + ((baseline.y1 - baseline.y0) / Math.max(1, baseline.x1 - baseline.x0)) * (along - baseline.x0);
+    placed.push({
+      word: { text, x: x0 + tilt * y, width: x1 - x0, size: lineHeight(line), confidence: word.confidence ?? 0 },
+      y: y - tilt * along,
+    });
+  }
+
+  placed.sort((a, b) => a.y - b.y || a.word.x - b.word.x);
+  const rows: LayoutRow[] = [];
+  let current: typeof placed = [];
+  const flush = () => {
+    if (current.length === 0) return;
+    const runs = joinWords(current.map((entry) => entry.word).sort((a, b) => a.x - b.x));
+    rows.push({ items: runs, y: median(current.map((entry) => entry.y)) });
+    current = [];
+  };
+  for (const entry of placed) {
+    if (current.length > 0 && entry.y - current[0].y > 0.5 * entry.word.size) flush();
+    current.push(entry);
+  }
+  flush();
+  return { rows, tilt };
+}
+
+/**
+ * Words closer than this, in line heights, are one run of text. Measured:
+ * the gap between words in OCR'd prose sits around a third of a line
+ * height, and justified text stretches it to just under one; a table's
+ * columns are almost always further apart than that.
+ */
+const WORD_RUN_GAP = 1;
+
+/**
+ * A row's words joined into runs of text.
+ *
+ * Tesseract reports single words, where a PDF reports runs — a phrase, a
+ * cell. Handed single words, the table detector would see every word space
+ * as a possible column boundary, and three lines of a letterhead can line up
+ * their word spaces by chance. Joined into runs first, an OCR'd row looks
+ * like a PDF's, and the detector treats both the same. A table whose columns
+ * sit closer together than a word space stretches is the price: it reads as
+ * text.
+ */
+function joinWords(words: OcrWord[]): OcrWord[] {
+  const runs: { word: OcrWord; confidences: number[] }[] = [];
+  for (const word of words) {
+    const last = runs[runs.length - 1];
+    if (last && word.x - (last.word.x + last.word.width) <= WORD_RUN_GAP * Math.max(word.size, last.word.size)) {
+      last.word = {
+        text: `${last.word.text} ${word.text}`,
+        x: last.word.x,
+        width: word.x + word.width - last.word.x,
+        size: Math.max(word.size, last.word.size),
+        confidence: 0,
+      };
+      last.confidences.push(word.confidence);
+    } else {
+      runs.push({ word: { ...word }, confidences: [word.confidence] });
+    }
+  }
+  return runs.map((run) => ({ ...run.word, confidence: average(run.confidences) }));
+}
+
+/**
+ * A line's height in pixels — the unit the table detector measures in. The
+ * row height Tesseract measured, where it gave one, is steadier than the
+ * box, which grows with every descender and accent on the line.
+ */
+function lineHeight(line: RecognisedLine): number {
+  const measured = line.rowAttributes?.rowHeight;
+  if (measured && measured > 0) return measured;
+  return line.bbox ? line.bbox.y1 - line.bbox.y0 : 0;
 }
 
 /** Lines grouped as Tesseract grouped them, before the geometry is applied. */
@@ -171,6 +465,7 @@ function readLines(blocks: RecognisedBlock[]): OcrLine[][] {
         if (text === "" || !line.bbox) continue;
         const firstWord = line.words?.find((word) => (word.text ?? "").trim() !== "")?.bbox;
         lines.push({
+          source: line,
           text,
           confidence: line.confidence ?? 0,
           box: line.bbox,
@@ -300,9 +595,16 @@ function average(values: number[]): number {
 }
 
 interface RecognisedBlock {
-  paragraphs?: {
-    lines?: { text: string; confidence?: number; bbox?: Box; words?: { text?: string; bbox?: Box }[] }[];
-  }[];
+  paragraphs?: { lines?: RecognisedLine[] }[];
+}
+
+interface RecognisedLine {
+  text: string;
+  confidence?: number;
+  bbox?: Box;
+  baseline?: Box;
+  rowAttributes?: { rowHeight?: number };
+  words?: { text?: string; bbox?: Box; confidence?: number }[];
 }
 
 function workerOptions(): { workerPath?: string; workerBlobURL?: boolean } {
