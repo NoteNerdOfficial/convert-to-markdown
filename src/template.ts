@@ -83,15 +83,6 @@ const CODE = /\u0000(\d+)\u0000/g;
 const SLOT = /\u0001(\d+)\u0001/g;
 const ISO_DATE = /^\d{4}-\d{2}-\d{2}(?:[T ][\d:.]+(?:Z|[+-]\d{2}:?\d{2})?)?$/;
 
-/**
- * Text that `yamlValue` would write bare but that YAML reads as something
- * other than a string. An invoice number of `0042` is the case that matters:
- * written bare it becomes the number 42. ISO dates stay bare, since that's how
- * Obsidian writes a date property itself.
- */
-const LOOKS_TYPED =
-  /^(?:true|false|yes|no|on|off|y|n|null|~|[-+]?(?:\d[\d_]*(?:\.[\d_]*)?|\.\d[\d_]*)(?:[eE][-+]?\d+)?|0x[\da-f_]+|0o[0-7_]+|0b[01_]+)$/i;
-
 export function renderTemplate(input: TemplateInput): TemplateOutput {
   const unknown: string[] = [];
   const missing: string[] = [];
@@ -298,7 +289,7 @@ function renderValue(
     // escape the code — so each value has to be safe on its own.
     const kept = fill(value, (t) => {
       const flat = t.replace(/[\r\n]+/g, " ").trim();
-      if (flat === "" || (yamlValue(flat) === flat && !LOOKS_TYPED.test(flat))) return flat;
+      if (flat === "" || yamlValue(flat) === flat) return flat;
       problems.push(`A value in the frontmatter line "${line.trim()}" can't sit unquoted beside Templater code, so it was left out.`);
       return "";
     }).trim();
@@ -319,7 +310,7 @@ function scalar(value: Value, problems: string[]): string | null {
 /** A string as YAML: bare where `yamlValue` would leave it bare and YAML would still read a string. */
 function yamlString(text: string): string {
   const flat = text.replace(/[\r\n]+/g, " ").trim();
-  return yamlValue(flat) === flat && !LOOKS_TYPED.test(flat) ? flat : `"${escapeDouble(flat)}"`;
+  return yamlValue(flat) === flat ? flat : `"${escapeDouble(flat)}"`;
 }
 
 function escapeDouble(text: string): string {

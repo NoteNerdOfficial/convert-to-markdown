@@ -104,14 +104,25 @@ export function alreadyTitled(lines: string[], title: string): boolean {
  * out of the source file — an email subject, a speaker's name, an epub's
  * author — it can contain a colon, a `#`, or a leading `-`, any of which turns
  * the line into something other than the string that was meant.
+ *
+ * Plain words and digits aren't always safe either. YAML reads a bare `yes`,
+ * `off` or `null` as a boolean or nothing, and `0042` or `1e3` as a number —
+ * a book titled *No*, or an invoice number with its leading zeros, would come
+ * back as something else. Those are quoted. A bare ISO date isn't: that's how
+ * Obsidian writes a date property itself.
  */
 export function yamlValue(text: string): string {
   const value = text.replace(/[\r\n]+/g, " ").trim();
   if (value === "") return '""';
+  if (LOOKS_TYPED.test(value)) return `"${value}"`;
   if (/^[A-Za-z0-9][A-Za-z0-9 ._/@+()–—-]*[A-Za-z0-9._/@+()]$/.test(value)) return value;
   if (/^[A-Za-z0-9]$/.test(value)) return value;
   return `"${value.replace(/\\/g, "\\\\").replace(/"/g, '\\"')}"`;
 }
+
+/** Bare scalars YAML reads as something other than a string. */
+const LOOKS_TYPED =
+  /^(?:true|false|yes|no|on|off|y|n|null|~|[-+]?(?:\d[\d_]*(?:\.[\d_]*)?|\.\d[\d_]*)(?:[eE][-+]?\d+)?|0x[\da-f_]+|0o[0-7_]+|0b[01_]+)$/i;
 
 /** Normalises whitespace inside a text run without touching line structure. */
 export function squashSpaces(text: string): string {
