@@ -71,6 +71,7 @@ than after two thousand lines of it:
 ```yaml
 sheets_converted: 23/23     # .xlsx, .ods
 pages_converted: 40/40      # .pdf
+form_fields_filled: 12/15   # .pdf, when it's a fillable form
 chapters_converted: 31/31   # .epub
 cues_converted: 812/812     # .vtt, .srt
 cells_converted: 41/41      # .ipynb
@@ -119,7 +120,7 @@ Per format, what's read and what it buys:
 | `.docx` | `word/document.xml` paragraphs and `numbering.xml` | Real heading levels from Word's own styles; ordered vs. unordered lists; tables; hyperlinks; bold/italic |
 | `.pptx` | Slide parts in `p:sldIdLst` order | One section per slide in *presentation* order, title placeholders as headings, speaker notes, slide tables |
 | `.xlsx` | Every worksheet, `sharedStrings.xml`, `styles.xml`, pivot caches | Dates instead of serial numbers, `27.38` instead of `27.383982300884924`, hidden sheets converted rather than dropped, coverage in the frontmatter |
-| `.pdf` | The text layer, via pdf.js; OCR for pages that have none | Columns read in order, tables rebuilt from how their cells line up, headings from font size, paragraphs rejoined across line breaks, de-hyphenation, running headers/footers dropped, scanned pages read rather than refused |
+| `.pdf` | The text layer, via pdf.js; OCR for pages that have none; a fillable form's fields | Columns read in order, tables rebuilt from how their cells line up, headings from font size, paragraphs rejoined across line breaks, de-hyphenation, running headers/footers dropped, scanned pages read rather than refused. A filled-in form's entries as a table — they aren't in the text layer at all — with the fields left empty named |
 | `.odt` `.ods` `.odp` | `content.xml`, `styles.xml`, `meta.xml` | Heading levels stated outright rather than inferred; the *displayed* value of a spreadsheet cell; footnotes collected at the end; speaker notes |
 | `.epub` | `container.xml` → the OPF spine and the contents document | Chapters in reading order rather than alphabetical, chapter titles from the contents page, cover art, book metadata in the frontmatter |
 | `.html` `.htm` | The page's own structural markers | The article rather than the whole page — navigation, cookie banners and site-map footers named and left out |

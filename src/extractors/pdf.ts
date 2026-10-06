@@ -6,6 +6,7 @@ import { bullet, escapeInline, heading, joinBlocks, squashSpaces, table } from "
 import { CDN_OCR, OcrProvider } from "../ocr";
 import { encodePng } from "../png";
 import { forPage, OcrEngineError, recognize, Recognition } from "../recognize";
+import { readFormFields } from "./pdfForms";
 import { ExtractResult } from "./types";
 
 // pdfjs-dist's worker script, inlined at build time by esbuild (see
@@ -134,10 +135,17 @@ export async function extractPdf(
       for (const embed of pageImages[index]) lines.push("", embed, "");
     });
 
+    // A fillable form's entries aren't in the text layer at all; they go
+    // first, since on a filled-in form they're what the reader came for.
+    const form = await readFormFields(document);
+
     return {
-      markdown: joinBlocks(lines),
-      warnings: pdfWarnings(document.numPages, pages, { scanned, failed, engineError }, skippedImages),
-      frontmatter: coverageOf(document.numPages, pages, scanned),
+      markdown: joinBlocks([...form.lines, ...lines]),
+      warnings: [
+        ...pdfWarnings(document.numPages, pages, { scanned, failed, engineError }, skippedImages),
+        ...form.warnings,
+      ],
+      frontmatter: { ...coverageOf(document.numPages, pages, scanned), ...form.frontmatter },
     };
   } finally {
     await document.destroy();
