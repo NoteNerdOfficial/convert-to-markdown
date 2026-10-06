@@ -106,7 +106,10 @@ export default class ConvertToMarkdownPlugin extends Plugin {
       );
     }
 
+    const original = this.originalEmbed(source);
+    if (original && this.settings.embedOriginal === "above") sections.push(original);
     sections.push(result.markdown.trim() === "" ? "*(no text content found)*" : result.markdown);
+    if (original && this.settings.embedOriginal === "below") sections.push(original);
 
     if (this.settings.addConversionNotes && result.warnings.length > 0) {
       sections.push(
@@ -132,6 +135,20 @@ export default class ConvertToMarkdownPlugin extends Plugin {
    * path is unambiguous in that case, at the cost of being the kind of link
    * that only updates itself when Obsidian is the one doing the moving.
    */
+  /**
+   * An embed of the source file itself, when the setting asks for one and
+   * Obsidian can display it.
+   *
+   * Only PDFs qualify. An image file is already embedded by its own
+   * extractor, and Obsidian has no viewer for Office, OpenDocument, EPUB or
+   * the rest — an embed of a .docx renders as nothing more than its filename,
+   * which the `source` link in the frontmatter already gives.
+   */
+  private originalEmbed(source: TFile): string | null {
+    if (this.settings.embedOriginal === "off" || source.extension.toLowerCase() !== "pdf") return null;
+    return `![[${this.sourceLink(source)}]]`;
+  }
+
   private sourceLink(source: TFile): string {
     const collides = this.app.vault.getFiles().some((file) => file !== source && file.name === source.name);
     return collides ? source.path : source.name;

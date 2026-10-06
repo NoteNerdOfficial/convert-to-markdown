@@ -17,6 +17,8 @@ export interface ConvertToMarkdownSettings {
   ocrDataFolder: string;
   /** Convert spreadsheet sheets Excel has marked hidden. */
   includeHiddenSheets: boolean;
+  /** Embed the original PDF in the note, above or below the converted text. */
+  embedOriginal: "off" | "above" | "below";
   /** Record the source file and conversion date in the note's frontmatter. */
   addFrontmatter: boolean;
   /** List anything the extractor dropped or guessed at the end of the note. */
@@ -33,6 +35,7 @@ export const DEFAULT_SETTINGS: ConvertToMarkdownSettings = {
   attachmentFolder: DEFAULT_ATTACHMENT_FOLDER,
   ocrDataFolder: "",
   includeHiddenSheets: true,
+  embedOriginal: "off",
   addFrontmatter: true,
   addConversionNotes: true,
   openAfterConvert: true,
@@ -141,6 +144,25 @@ export class ConvertToMarkdownSettingTab extends PluginSettingTab {
           );
       }
     }
+
+    new Setting(containerEl)
+      .setName("Embed the original PDF")
+      .setDesc(
+        "Show the PDF itself in the note, alongside the converted text, for documents where the layout " +
+          "matters as much as the words — an invoice, a form, a statement. Obsidian displays it as a " +
+          "scrollable viewer. The PDF stays where it is; the note just shows it."
+      )
+      .addDropdown((dropdown) =>
+        dropdown
+          .addOption("off", "Don't embed")
+          .addOption("above", "Above the converted text")
+          .addOption("below", "Below the converted text")
+          .setValue(this.plugin.settings.embedOriginal)
+          .onChange(async (value) => {
+            this.plugin.settings.embedOriginal = value === "above" || value === "below" ? value : "off";
+            await this.plugin.saveSettings();
+          })
+      );
 
     new Setting(containerEl)
       .setName("Convert hidden sheets")

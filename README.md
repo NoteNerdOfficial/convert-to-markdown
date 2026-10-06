@@ -77,6 +77,14 @@ cells_converted: 41/41      # .ipynb
 lines_converted: 120/120    # .txt
 ```
 
+For a PDF whose layout matters as much as its words — an invoice, a form, a
+statement — **Embed the original PDF** puts the PDF itself in the note, above
+or below the converted text, where Obsidian shows it as a scrollable viewer.
+The note embeds the PDF where it already is rather than copying it, by the same
+moveable bare-filename link as `source`. It's off by default, and PDF-only:
+Obsidian can't display Office or e-book files inline, so for those the
+`source` link is all an embed would give you anyway.
+
 ## Compared to markitdown
 
 The Obsidian plugins in this space wrap Microsoft's `markitdown`, which is one
