@@ -119,7 +119,7 @@ Per format, what's read and what it buys:
 | `.docx` | `word/document.xml` paragraphs and `numbering.xml` | Real heading levels from Word's own styles; ordered vs. unordered lists; tables; hyperlinks; bold/italic |
 | `.pptx` | Slide parts in `p:sldIdLst` order | One section per slide in *presentation* order, title placeholders as headings, speaker notes, slide tables |
 | `.xlsx` | Every worksheet, `sharedStrings.xml`, `styles.xml`, pivot caches | Dates instead of serial numbers, `27.38` instead of `27.383982300884924`, hidden sheets converted rather than dropped, coverage in the frontmatter |
-| `.pdf` | The text layer, via pdf.js; OCR for pages that have none | Columns read in order, headings from font size, paragraphs rejoined across line breaks, de-hyphenation, running headers/footers dropped, scanned pages read rather than refused |
+| `.pdf` | The text layer, via pdf.js; OCR for pages that have none | Columns read in order, tables rebuilt from how their cells line up, headings from font size, paragraphs rejoined across line breaks, de-hyphenation, running headers/footers dropped, scanned pages read rather than refused |
 | `.odt` `.ods` `.odp` | `content.xml`, `styles.xml`, `meta.xml` | Heading levels stated outright rather than inferred; the *displayed* value of a spreadsheet cell; footnotes collected at the end; speaker notes |
 | `.epub` | `container.xml` → the OPF spine and the contents document | Chapters in reading order rather than alphabetical, chapter titles from the contents page, cover art, book metadata in the frontmatter |
 | `.html` `.htm` | The page's own structural markers | The article rather than the whole page — navigation, cookie banners and site-map footers named and left out |
@@ -356,6 +356,16 @@ conversion says which one.
   distribution of ink per page, so a layout no gutter runs through — text
   wrapped around a figure, a magazine-style collage — can still come out in
   the wrong order.
+- **PDF tables are found by alignment, and only when it's convincing.** A
+  PDF has no tables, only text that lines up, so a table is recognised by
+  strips of the page that none of its rows crosses. Prose never has those,
+  but text set in narrow columns, or in a monospaced font where word gaps
+  line up by chance, can — so a block whose columns read as running text is
+  left as text. Two columns become a table only when the right one is
+  numbers (a receipt, an invoice's totals); two columns of words are as
+  often labels beside values. A missed table reads as before, a run of words;
+  cells merged across columns and tables on scanned pages aren't handled
+  yet.
 - **A scanned page is read through its page image**, which is what a scan
   actually is. A page with no text layer whose lettering is drawn as vector
   outlines instead has no image to hand the recogniser, and is reported as

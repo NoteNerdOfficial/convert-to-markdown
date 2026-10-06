@@ -1,7 +1,8 @@
 import * as pdfjsLib from "pdfjs-dist";
 import type { PDFDocumentProxy, PDFPageProxy, TextItem } from "pdfjs-dist/types/src/display/api";
 import { AssetSink } from "../assets";
-import { bullet, escapeInline, heading, joinBlocks, squashSpaces } from "../markdown";
+import { findTables, joinItems } from "../layout/tables";
+import { bullet, escapeInline, heading, joinBlocks, squashSpaces, table } from "../markdown";
 import { CDN_OCR, OcrProvider } from "../ocr";
 import { encodePng } from "../png";
 import { forPage, OcrEngineError, recognize, Recognition } from "../recognize";
@@ -114,8 +115,11 @@ export async function extractPdf(
       );
     }
 
-    const bodySize = modeFontSize(allLines);
-    const bodyWidth = medianLineWidth(allLines);
+    // Tables are left out of the body measurements: a page of line items is
+    // all short cells, and would make every paragraph look like it ended early.
+    const textLines = allLines.filter((line) => !line.table);
+    const bodySize = modeFontSize(textLines);
+    const bodyWidth = medianLineWidth(textLines);
 
     const lines: string[] = [];
     pages.forEach((pageLines, index) => {
@@ -595,6 +599,8 @@ interface Line {
   /** Left edge in PDF user space, used to detect indented blocks. */
   left: number;
   right: number;
+  /** A table found on the page, already rendered; `text` is then only for measuring. */
+  table?: string[];
 }
 
 interface PositionedItem {
@@ -630,7 +636,53 @@ function positionItems(items: TextItem[]): PositionedItem[] {
 function buildPage(positioned: PositionedItem[]): Line[] {
   if (positioned.length === 0) return [];
 
-  const boundaries = detectColumnBoundaries(positioned);
+  // Tables come out before columns are looked for. The gaps between a table's
+  // columns are exactly what column detection is looking for, and a page
+  // that is mostly line items would otherwise be read down each column of
+  // the table in turn.
+  const rows = groupRows(positioned);
+  const tables = findTables(rows.map((row) => ({ items: row, y: -row[0].y })));
+  if (tables.length === 0) return buildTextLines(positioned, positioned);
+
+  // Columns are still worked out from the whole page, tables included, so
+  // the text around a table reads exactly as it did before tables were
+  // found — taking the table's rows away can leave too few lines for a
+  // two-column letterhead to be recognised as one.
+  const inTable = new Set(tables.flatMap((found) => rows.slice(found.first, found.last + 1)));
+  const lines = buildTextLines(rows.filter((row) => !inTable.has(row)).flat(), positioned);
+
+  // Each table goes in before the first line that sits below it and shares
+  // some of its width — on one column, simply the next line down; on two,
+  // the next line of the column the table is in.
+  for (const found of tables) {
+    const top = rows[found.first][0].y;
+    const tableLine: Line = {
+      text: found.rows.flat().join(" "),
+      size: Math.max(...rows[found.first].map((item) => item.size)),
+      top,
+      left: found.left,
+      right: found.right,
+      table: table(
+        found.rows.map((row) => row.map((cell) => squashSpaces(escapeInline(cell)))),
+        found.numeric
+      ),
+    };
+    const next = lines.findIndex(
+      (line) => line.top < top && line.left < found.right && line.right > found.left && !line.table
+    );
+    lines.splice(next === -1 ? lines.length : next, 0, tableLine);
+  }
+  return lines;
+}
+
+/**
+ * The page's running text, in reading order, once any tables are out of the
+ * way. `page` is everything on it, which is what columns are judged from.
+ */
+function buildTextLines(positioned: PositionedItem[], page: PositionedItem[]): Line[] {
+  if (positioned.length === 0) return [];
+
+  const boundaries = detectColumnBoundaries(page);
   if (boundaries.length === 0) return buildLines(positioned);
 
   // A row whose ink runs continuously across a gutter is a banner — a title,
@@ -832,7 +884,7 @@ function buildLines(positioned: PositionedItem[]): Line[] {
 
 /** One row of items as a line, or null when it holds no visible text. */
 function toLine(row: PositionedItem[]): Line | null {
-  const text = joinRun(row);
+  const text = joinItems(row);
   if (text.trim() === "") return null;
   return {
     text,
@@ -871,24 +923,6 @@ function groupRows(positioned: PositionedItem[]): PositionedItem[][] {
   flush();
 
   return rows;
-}
-
-/**
- * Joins the items on one line, inserting a space where the horizontal gap says
- * there was one. PDF writers split a line into runs wherever the font or
- * kerning changes, so the item boundaries themselves mean nothing.
- */
-function joinRun(items: { text: string; x: number; width: number; size: number }[]): string {
-  let out = items[0].text;
-  let cursor = items[0].x + items[0].width;
-
-  for (const item of items.slice(1)) {
-    const gap = item.x - cursor;
-    const needsSpace = gap > item.size * 0.2 && !/\s$/.test(out) && !/^\s/.test(item.text);
-    out += needsSpace ? ` ${item.text}` : item.text;
-    cursor = item.x + item.width;
-  }
-  return out;
 }
 
 /**
@@ -941,6 +975,12 @@ function renderPage(lines: Line[], bodySize: number, bodyWidth: number): string[
   const endsBlock = (line: Line) => line.right - line.left < bodyWidth * 0.85;
 
   lines.forEach((line, index) => {
+    if (line.table) {
+      flush();
+      out.push("", ...line.table, "");
+      return;
+    }
+
     const level = headingLevels[index];
     if (level !== null) {
       flush();
@@ -997,6 +1037,7 @@ function continuesBlock(
  */
 function headingLevelsFor(lines: Line[], bodySize: number): (number | null)[] {
   const levels: (number | null)[] = lines.map((line) => {
+    if (line.table) return null;
     const ratio = line.size / bodySize;
     if (ratio < 1.2) return null;
     // A "heading" that runs on for a paragraph's worth of words is really

@@ -38,8 +38,11 @@ export function numbered(depth: number, text: string): string {
  * Renders a table. Markdown requires a header row, so a table whose first row
  * isn't really a header still has to give up its first row for one — that's a
  * limitation of the target format, not a choice.
+ *
+ * `rightAligned` marks columns to right-align — numbers, which line up on
+ * their last digit.
  */
-export function table(rows: string[][]): string[] {
+export function table(rows: string[][], rightAligned: boolean[] = []): string[] {
   if (rows.length === 0) return [];
   const width = Math.max(...rows.map((row) => row.length));
   const pad = (row: string[]) => {
@@ -49,7 +52,8 @@ export function table(rows: string[][]): string[] {
   };
 
   const [header, ...body] = rows;
-  return [pad(header), `| ${Array(width).fill("---").join(" | ")} |`, ...body.map(pad)];
+  const rule = Array.from({ length: width }, (_, column) => (rightAligned[column] ? "---:" : "---"));
+  return [pad(header), `| ${rule.join(" | ")} |`, ...body.map(pad)];
 }
 
 /**
