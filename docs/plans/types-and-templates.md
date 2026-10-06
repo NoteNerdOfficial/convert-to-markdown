@@ -265,16 +265,16 @@ fields but no values is named as unfilled.
 Each phase ships on its own and leaves General output either unchanged or
 strictly better.
 
-| # | Phase | Notes |
-|---|---|---|
-| 0 | **Embed original** setting | Independent; smallest change. |
-| 1 | **Layout model** + OCR word boxes kept | Refactor only. Harness output on every sample must be byte-identical before/after. |
-| 2 | **Table detection on text PDFs** | General output gains tables. |
-| 3 | **Table detection on OCR** (images + scanned PDF pages) | Confidence reporting and the tilt bail-out. |
-| 4 | **Fillable form fields** | |
-| 5 | **Type framework + Invoice/receipt** with built-in template | Pairs, fields, normalization, checks, provenance keys, the "as…" UI. |
-| 6 | **Template notes + extra labels** | Settings UI, placeholder engine, coverage-key merge. |
-| 7 | **Statement** type | First reuse of the framework, which tests whether it's general. |
+| # | Phase | Status | Notes |
+|---|---|---|---|
+| 0 | **Embed original** setting | Done | PDF only: images embed themselves, and Obsidian can't show other formats inline. |
+| 1 | **Layout model** + OCR word boxes kept | Partly done | Built only as far as phase 2 needed: `src/layout/tables.ts` works on positioned words (`LayoutRow`/`LayoutItem`), not pdf.js items. Keeping OCR word boxes moves to phase 3, and `ExtractResult.layout` to phase 5, where each is first used. |
+| 2 | **Table detection on text PDFs** | Done | Columns are strips no row crosses, so prose and monospaced text stay text. Two columns are a table only when the right one is numbers. |
+| 3 | **Table detection on OCR** (images + scanned PDF pages) | | Confidence reporting and the tilt bail-out. Feeds Tesseract's word boxes to the same detector. |
+| 4 | **Fillable form fields** | Done | Field \| Value table, `form_fields_filled` count, empty fields named. |
+| 5 | **Type framework + Invoice/receipt** with built-in template | | Pairs, fields, normalization, checks, provenance keys, the "as…" UI. |
+| 6 | **Template notes + extra labels** | Engine done | `src/template.ts` renders templates and holds the default invoice template. Still to do: settings UI, template-note lookup, extra labels. |
+| 7 | **Statement** type | | First reuse of the framework, which tests whether it's general. |
 
 ## Verification
 
