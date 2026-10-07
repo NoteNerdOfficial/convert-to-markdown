@@ -122,7 +122,7 @@ export async function extractPdf(
     if (allLines.length === 0 && engineError) throw engineError;
     if (allLines.length === 0 && scanned.size === 0) {
       throw new Error(
-        "this PDF has no text at all — no text layer, and no page image that OCR could read either"
+        "this PDF has no text at all: no text layer, and no page image that OCR could read either"
       );
     }
 
@@ -206,7 +206,7 @@ function pdfWarnings(
       `${read.length} page${read.length === 1 ? "" : "s"} had no text layer and ${
         read.length === 1 ? "was" : "were"
       } read by OCR instead (${listPages(read.map(([page]) => page))}). That part of the note is a recognition ` +
-        `rather than an extraction and can be wrong — lowest confidence was ${lowest}%.`
+        `rather than an extraction and can be wrong. Lowest confidence was ${lowest}%.`
     );
 
     // Named by page, not counted: a doubtful table is checked against the
@@ -218,7 +218,7 @@ function pdfWarnings(
       .map(([page]) => page);
     if (doubtful.length > 0) {
       warnings.push(
-        `Tables read by OCR with confidence below ${LOW_TABLE_CONFIDENCE}% (${listPages(doubtful)}) — check the ` +
+        `Tables read by OCR with confidence below ${LOW_TABLE_CONFIDENCE}% (${listPages(doubtful)}). Check the ` +
           "figures against the original."
       );
     }
@@ -226,7 +226,7 @@ function pdfWarnings(
       if (recognition.unplaced.length === 0) continue;
       warnings.push(
         `On page ${page}, OCR read these in a table's area, but they aren't in the table: ` +
-          `${recognition.unplaced.map(escapeInline).join(", ")} — check the table against the original.`
+          `${recognition.unplaced.map(escapeInline).join(", ")}. Check the table against the original.`
       );
     }
     const unsearched = read.filter(([, recognition]) => recognition.tablesSkipped);
@@ -268,7 +268,7 @@ function pdfWarnings(
     .filter((page) => page > 0);
   if (blank.length > 0) {
     warnings.push(
-      `${blank.length} of ${pageCount} pages produced nothing — no text layer, and nothing OCR could read ` +
+      `${blank.length} of ${pageCount} pages produced nothing: no text layer, and nothing OCR could read ` +
         `(${listPages(blank)}). They may be blank, or artwork with no lettering.`
     );
   }

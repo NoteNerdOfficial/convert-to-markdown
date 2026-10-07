@@ -5,7 +5,7 @@ notebooks, subtitle tracks, spreadsheets, plain text and images in your vault in
 notes, images and all.
 
 No LLM, no API key, no cloud service, no external binary. Nothing you convert
-is uploaded anywhere — every byte is processed on your machine.
+is uploaded anywhere: every byte is processed on your machine.
 
 Documents are parsed directly from their own structure, which makes them fully
 deterministic and fully offline: the same file always produces byte-identical
@@ -20,8 +20,8 @@ receipts](#invoices-and-receipts) and [Bank and card
 statements](#bank-and-card-statements).
 
 Pixels are the one exception. An image file has no structure to read, and
-neither does a page of a scanned PDF, so reading either means OCR —
-statistical rather than structural, and occasionally wrong, which is why it
+neither does a page of a scanned PDF, so reading either means OCR.
+That's statistical rather than structural, and occasionally wrong, which is why it
 reports its confidence and says which pages it was used on. Tesseract is a
 local neural recogniser, not a language model and not a service. It also
 downloads its engine the first time you use it. Details under [OCR](#ocr).
@@ -37,7 +37,7 @@ Settings → Community plugins → Browse → search **Convert to Markdown** →
 Install, then Enable.
 
 Nothing else. No runtime to install, no binary to put on PATH, no account.
-Desktop only — it uses Node's `zlib`, which Obsidian mobile doesn't have.
+Desktop only, because it uses Node's `zlib`, which Obsidian mobile doesn't have.
 
 The first time you convert an *image or a scanned PDF*, there's a one-off
 engine download (see [OCR](#ocr)); the notice shows its progress. Everything
@@ -51,7 +51,7 @@ Supported: `.pdf` · `.docx` `.pptx` `.xlsx` (and `.docm` `.pptm` `.xlsm`) ·
 Pairs well with [Doc Preview](https://community.obsidian.md/plugins/doc-preview),
 also by this author: it renders `.pptx`/`.docx`/`.xlsx` files in an Obsidian
 tab exactly as formatted, via a local LibreOffice install, so you can open the
-original beside the converted note — useful for checking a conversion, or for
+original beside the converted note, which helps with checking a conversion, or with
 deciding whether one's even worth doing.
 
 ## Usage
@@ -66,8 +66,8 @@ The note then leads with that document's facts as properties; see
 [Invoices and receipts](#invoices-and-receipts).
 
 The note is written next to the original (configurable), never overwriting an
-existing note. Anything the converter dropped — images it couldn't render,
-sheets you asked it to leave out, a page's navigation, an email attachment —
+existing note. Anything the converter dropped (images it couldn't render,
+sheets you asked it to leave out, a page's navigation, an email attachment)
 is named in a collapsed callout at the end. Not counted: *named*, because
 "3 items skipped" tells you nothing you can act on.
 
@@ -75,7 +75,7 @@ The frontmatter's `source` field links back to the original as a bare-filename
 wikilink (`[[report.docx]]`) rather than its full path, for the same reason
 the images are: Obsidian resolves it by searching the vault each time, so the
 source file can be moved anywhere afterward without the link breaking. That
-only holds while the filename is unique — if another file elsewhere in the
+only holds while the filename is unique. If another file elsewhere in the
 vault happens to share it, the full path is used instead, since a bare link
 would otherwise point at whichever one Obsidian happened to pick.
 
@@ -92,8 +92,8 @@ cells_converted: 41/41      # .ipynb
 lines_converted: 120/120    # .txt
 ```
 
-For a PDF whose layout matters as much as its words — an invoice, a form, a
-statement — **Embed the original PDF** puts the PDF itself in the note, above
+For a PDF whose layout matters as much as its words, such as an invoice, a form or a
+statement, **Embed the original PDF** puts the PDF itself in the note, above
 or below the converted text, where Obsidian shows it as a scrollable viewer.
 The note embeds the PDF where it already is rather than copying it, by the same
 moveable bare-filename link as `source`. It's off by default, and PDF-only:
@@ -105,14 +105,14 @@ Obsidian can't display Office or e-book files inline, so for those the
 | Setting | What it does |
 |---|---|
 | **Save converted notes** / **Output folder** | Next to the original (default), or in one folder |
-| **Extract images** / **Save images** / **Image folder** | Whether images are written out and embedded, and where — see [Images](#images) |
+| **Extract images** / **Save images** / **Image folder** | Whether images are written out and embedded, and where. See [Images](#images) |
 | **Embed the original PDF** | Show the PDF itself above or below the converted text |
 | **Date order** | How all-number dates like `06/10/2026` are read when converting as an invoice or statement |
-| **Convert hidden sheets** | Spreadsheets only — see [Spreadsheets](#spreadsheets) |
-| **OCR engine folder** | Supply the OCR engine from the vault instead of downloading it — see [OCR](#ocr) |
+| **Convert hidden sheets** | Whether hidden sheets are converted. See [Spreadsheets](#spreadsheets) |
+| **OCR engine folder** | Supply the OCR engine from the vault instead of downloading it. See [OCR](#ocr) |
 | **Add frontmatter** / **Add conversion notes** | The properties at the top, and the callout of what was dropped at the end |
 | **Open after converting** | Open the new note |
-| **Invoice / receipt** and **Statement** → **Template note**, **Extra labels** | Your own layout for that type's notes, and your own labels for its fields — see [Your own template](#your-own-template) |
+| **Invoice / receipt** and **Statement** → **Template note**, **Extra labels** | Your own layout for that type's notes, and your own labels for its fields. See [Your own template](#your-own-template) |
 
 ## Tables
 
@@ -131,7 +131,7 @@ are found there:
 Empty cells stay empty in the right column, number columns are
 right-aligned, a description that wraps stays in its cell, and a header
 printed over several lines becomes one header. Text that only looks
-tabular — two columns of prose, monospaced text, a label beside its value —
+tabular (two columns of prose, monospaced text, a label beside its value)
 is left as text. A scan or photo that's a little crooked is straightened
 first. How it works, and where it stops, is under [OCR](#ocr) and [Known
 limits](#known-limits).
@@ -168,13 +168,13 @@ SORT due_date
 ```
 ````
 
-If your invoices use day-first dates — most of the world outside the US —
+If your invoices use day-first dates, as most of the world outside the US does,
 check **Date order** in settings. Left on *From your system's language*, it
 follows the language Obsidian runs in, and a Mac set to US English reads
 `06/10/2026` as June 10. Either way, a date that could be read both ways is
 listed in `ambiguous_fields`.
 
-Fields are found by their labels and where the value sits — `Invoice #: 1042`,
+Fields are found by their labels and where the value sits: `Invoice #: 1042`,
 `Amount due` with the figure tabbed out beside it, an address under `Bill to`.
 Labels printed in two languages (`Invoice date / Date de facturation`) match
 on either, and a more specific label wins over a vaguer one, so *Total
@@ -183,7 +183,7 @@ read by OCR. It isn't AI and doesn't guess at meaning, so what it couldn't do
 is said in the note rather than papered over:
 
 - `missing_fields` names what an invoice should have and this one didn't
-  show — a receipt with no invoice number, an invoice with no due date.
+  show, such as a receipt with no invoice number, an invoice with no due date.
 - `guessed_fields` names what came from a fallback rather than a label: the
   vendor taken as the most prominent line at the top, a receipt's date taken
   as the first date printed.
@@ -193,15 +193,15 @@ is said in the note rather than papered over:
 
 The figures are also checked against each other: the line items should add up
 to the subtotal, and the subtotal plus tax and shipping, less any discount, to
-the total. When they don't — a misread digit, or an invoice that's simply
-wrong — the conversion notes say so with both numbers.
+the total. When they don't, because of a misread digit or an invoice that's simply
+wrong, the conversion notes say so with both numbers.
 
 ### Your own template
 
 Under **Invoice / receipt** (or **Statement**) in settings, **Template
 note** picks a note to lay that type's notes out by, and **Create from
-built-in** writes the built-in template into your vault — as `Invoice
-template.md` or `Statement template.md` — and opens it to start from. A template is an ordinary note with
+built-in** writes the built-in template into your vault as `Invoice
+template.md` or `Statement template.md` and opens it to start from. A template is an ordinary note with
 placeholders:
 
 ```markdown
@@ -211,7 +211,7 @@ amount: {{total}}
 due: {{due_date:DD MMM YYYY}}
 status: unpaid
 ---
-# {{vendor}} — {{invoice_number}}
+# {{vendor}} invoice {{invoice_number}}
 
 {{original}}
 
@@ -243,7 +243,7 @@ notes, and a template note that's been deleted, or whose properties block
 never closes, gives way to the built-in template, with a note saying so.
 
 **Extra labels to read fields by**, below the template, takes your own labels
-per field — if your landlord's invoices say *Total to remit*, add it to
+per field. If your landlord's invoices say *Total to remit*, add it to
 Total; if your bank calls the closing balance *Balance this statement*, add
 that to Closing balance.
 
@@ -272,14 +272,14 @@ as printed, so the full number is still in the note itself.
 A statement that runs over several pages repeats its table header on each,
 and those pages' transactions are read as one table. Every row is checked
 against the running balance, and the opening balance plus the transactions
-against the closing balance. Which way round an amount counts differs — a
-credit is money in on a bank account and a payment on a credit card — so
+against the closing balance. Which way round an amount counts differs (a
+credit is money in on a bank account and a payment on a credit card), so
 both readings are tried and the statement's own balances decide. A row
 whose balance doesn't follow is named by its date and description, and one
 misprinted balance is reported once, not as every row after it.
 
 Statements take a template note and extra labels in settings, the same way
-invoices do — see [Your own template](#your-own-template).
+invoices do. See [Your own template](#your-own-template).
 
 ## Compared to markitdown
 
@@ -290,14 +290,14 @@ structure means, and those decisions are where the mess comes from.
 **Nothing to install.** A markitdown-based plugin needs Python on the machine
 and `pip install markitdown`, and fails with "Python is not installed or not
 found at the configured path" until it has both. This one is plain JavaScript
-inside Obsidian — which also means it works on a locked-down machine where
+inside Obsidian, which also means it works on a locked-down machine where
 installing Python is the step that's blocked.
 
 **Structure survives.** Headings keep their levels, lists stay lists, tables
 stay tables, and images are written into the vault and embedded at the point
 they appeared. Running the same PDF through both, markitdown returns the text
-hard-wrapped exactly where the PDF's column broke, hyphens included —
-`medica-` / `tions`, `occlu-` / `sion` — because a PDF line break is a
+hard-wrapped exactly where the PDF's column broke, hyphens included
+(`medica-` / `tions`, `occlu-` / `sion`), because a PDF line break is a
 typesetting artifact it preserves rather than undoes. This one rejoins the
 paragraph and repairs the hyphenation.
 
@@ -305,7 +305,7 @@ paragraph and repairs the hyphenation.
 is read top to bottom before the next, so a two-column paper doesn't come out
 interleaved. Full-width titles and headings are recognised as spanning the
 columns and stay where they belong, and running headers are stripped before
-the columns are worked out — otherwise a footer spread along the page bottom
+the columns are worked out. Otherwise a footer spread along the page bottom
 lands in the middle of the text.
 
 Per format, what's read and what it buys:
@@ -315,16 +315,16 @@ Per format, what's read and what it buys:
 | `.docx` | `word/document.xml` paragraphs and `numbering.xml` | Real heading levels from Word's own styles; ordered vs. unordered lists; tables; hyperlinks; bold/italic |
 | `.pptx` | Slide parts in `p:sldIdLst` order | One section per slide in *presentation* order, title placeholders as headings, speaker notes, slide tables |
 | `.xlsx` | Every worksheet, `sharedStrings.xml`, `styles.xml`, pivot caches | Dates instead of serial numbers, `27.38` instead of `27.383982300884924`, hidden sheets converted rather than dropped, coverage in the frontmatter |
-| `.pdf` | The text layer, via pdf.js; OCR for pages that have none; a fillable form's fields | Columns read in order, tables rebuilt from how their cells line up, headings from font size, paragraphs rejoined across line breaks, de-hyphenation, running headers/footers dropped, scanned pages read rather than refused. A filled-in form's entries as a table — they aren't in the text layer at all — with the fields left empty named |
+| `.pdf` | The text layer, via pdf.js; OCR for pages that have none; a fillable form's fields | Columns read in order, tables rebuilt from how their cells line up, headings from font size, paragraphs rejoined across line breaks, de-hyphenation, running headers/footers dropped, scanned pages read rather than refused. A filled-in form's entries as a table (they aren't in the text layer at all), with the fields left empty named |
 | `.odt` `.ods` `.odp` | `content.xml`, `styles.xml`, `meta.xml` | Heading levels stated outright rather than inferred; the *displayed* value of a spreadsheet cell; footnotes collected at the end; speaker notes |
 | `.epub` | `container.xml` → the OPF spine and the contents document | Chapters in reading order rather than alphabetical, chapter titles from the contents page, cover art, book metadata in the frontmatter |
-| `.html` `.htm` | The page's own structural markers | The article rather than the whole page — navigation, cookie banners and site-map footers named and left out |
+| `.html` `.htm` | The page's own structural markers | The article rather than the whole page: navigation, cookie banners and site-map footers named and left out |
 | `.mhtml` `.mht` | The MIME archive Chrome and Word save pages as | The page *and* its images, since a single-file save has them both |
 | `.eml` | Headers, the multipart body, transport encodings | Correspondents and subject in the frontmatter, quoting preserved, inline images placed, attachments named |
 | `.ipynb` | Cells, and the richest usable form of each output | Prose as prose, code fenced with its language, plots embedded, DataFrames as real tables rather than padded digits |
-| `.vtt` `.srt` | Cue timings, `<v>` voices, `>>` and dialogue dashes | A readable transcript instead of 800 numbered stanzas — see [Transcripts](#transcripts) |
+| `.vtt` `.srt` | Cue timings, `<v>` voices, `>>` and dialogue dashes | A readable transcript instead of 800 numbered stanzas. See [Transcripts](#transcripts) |
 | `.csv` `.tsv` | RFC 4180, with the delimiter worked out from the file | Quoted fields containing commas and line breaks survive; a semicolon-separated European export isn't read as one column |
-| `.txt` | Lines, and the encoding — from a byte-order mark, else UTF-8, else windows-1252 | The note reads exactly as the file did: a stray `#` or a row of `===` doesn't become a heading, indentation doesn't become a code block, typed `-` lists and `>` quotes stay lists and quotes. An assumed encoding is named in the frontmatter |
+| `.txt` | Lines, and the encoding: from a byte-order mark, else UTF-8, else windows-1252 | The note reads exactly as the file did: a stray `#` or a row of `===` doesn't become a heading, indentation doesn't become a code block, typed `-` lists and `>` quotes stay lists and quotes. An assumed encoding is named in the frontmatter |
 | `.png` `.jpg` `.webp` `.gif` `.bmp` `.tiff` | Local OCR (Tesseract) | Text off a screenshot or photo, laid out as paragraphs rather than one line per pixel row |
 
 Macro-enabled variants (`.docm`, `.pptm`, `.xlsm`) are the same parts plus a
@@ -333,7 +333,7 @@ VBA blob, and convert identically.
 Three of these share one reader, and share it because they are the same format
 in different envelopes rather than merely similar: an epub chapter, a saved web
 page and an email's HTML body are all HTML. `.mhtml` and `.eml` likewise share
-a MIME parser — a saved web page in MHTML *is* an email whose attachments
+a MIME parser: a saved web page in MHTML *is* an email whose attachments
 happen to be the page's images.
 
 ## Transcripts
@@ -341,7 +341,7 @@ happen to be the page's images.
 A caption file's structure is timing, not prose. It is cut into two-second cues
 sized for the bottom of a screen, and every cue is hard-wrapped to the display
 width. Written out cue by cue you get hundreds of numbered stanzas nobody can
-read, where the timings — the least interesting thing in the file — are the
+read, where the timings, the least interesting thing in the file, are the
 only structure the layout expresses.
 
 So the cues are put back together: lines rejoined, consecutive cues from the
@@ -358,21 +358,21 @@ Lucern Hotel, just down the street from the American Museum of Natural History.
 Speakers are read from every convention a real transcript turns up with:
 WebVTT's `<v Name>`, broadcast captioning's `>>` and `>> NAME:`, the
 subtitling convention of a dash at the start of each speaker's line, Webex's
-own export, which names the speaker on the cue's own identifier line —
-`2 "Alex Kim (They/Them)" (100000001)` — quoted name and participant id,
+own export, which names the speaker on the cue's own identifier line
+(`2 "Alex Kim (They/Them)" (100000001)`): quoted name and participant id,
 ahead of the timing line rather than inside the cue text, and the bare
 `Name: text` several other transcription tools write straight into the cue
 itself. Webex's identifier line is read whether or not the cue number sits
-in front of the quoted name on that same line — real exports do both — and
+in front of the quoted name on that same line (real exports do both), and
 the name itself may hold its own parentheses (Webex appends a participant's
 pronouns to their display name), so the trailing `(id)` is matched at the
 end of the line rather than as the first parenthesised group found. The dash
-and the chevrons have to be understood anyway — `>` and `-` at the start of
+and the chevrons have to be understood anyway: `>` and `-` at the start of
 a line are a blockquote and a list item in Markdown, so leaving them in
 would corrupt the note even if you
 didn't want the speaker names.
 
-The bare form is the one case with no markup at all to go on — `John Doe:
+The bare form is the one case with no markup at all to go on. `John Doe:
 thanks for joining` and `Note: this call is recorded` are typed identically,
 and only one of them is a speaker. So it's read conservatively: the whole
 file is scanned first for the shape, and a name is only trusted once it's
@@ -390,15 +390,15 @@ Cue count and duration go in the frontmatter (`cues_converted: 812/812`), and a
 ## Images
 
 Images are pulled out of the source file, written to `<note name>
-attachments/` beside the note, and embedded where they actually sat — a figure
+attachments/` beside the note, and embedded where they actually sat: a figure
 inside a Word table cell comes out inside that table cell. Identical images are
 written once no matter how many times they're used, so a logo on forty slides
 is one file.
 
 The folder is a setting. **Image folder** is a path relative to the converted
 note, where `{{note}}` stands for the note's name: `XAttachment` is a folder
-beside the note, `../assets` is one level up, and a leading slash —
-`/Assets/{{note}}` — starts from the vault root. A path that would leave the
+beside the note, `../assets` is one level up, and a leading slash
+(`/Assets/{{note}}`) starts from the vault root. A path that would leave the
 vault stops the conversion with an error rather than writing somewhere else.
 Or set **Save images** to follow Obsidian's own *Default location for new
 attachments*, and converted images land wherever pasted ones do. Several notes
@@ -406,7 +406,7 @@ can share one folder: an image that's already there under the same
 hash-stamped name is the same image, so it's linked rather than written again.
 
 Converting an image file (a PNG screenshot, a scanned JPEG) moves that file
-into the image folder rather than copying it there, and the note embeds it —
+into the image folder rather than copying it there, and the note embeds it:
 one file, where the setting says images go. The move goes through Obsidian, so
 anything already linking to the image follows it. If a different file already
 has that name in the folder, the image stays put and the conversion notes say
@@ -415,17 +415,17 @@ note, any images, any folders it created, and the move.
 
 Each one is named with a short hash of its own bytes (`image-1-a3f9c2b7.png`),
 and embedded by that bare filename rather than its full path. That's what lets
-the attachments folder be moved anywhere else in the vault — by Obsidian's
-file explorer, a sync tool, or dragged around in Finder — without breaking the
+the attachments folder be moved anywhere else in the vault, by Obsidian's
+file explorer, a sync tool, or dragged around in Finder, without breaking the
 embed: Obsidian finds a bare-filename embed by searching the vault each time
 it renders the note, rather than trusting a path stored at conversion time.
-The hash is what makes that safe to do at all — a plain `image-1.png` would
+The hash is what makes that safe to do at all: a plain `image-1.png` would
 collide the moment two different notes had a first image, and Obsidian would
 have no way to know which one a bare link meant.
 
 Word, PowerPoint and Excel store images in their original encoding, so those
-come out untouched (`.jpeg` stays `.jpeg`). A PDF doesn't store files at all —
-it stores decoded pixels — so images from a PDF are re-encoded as PNG. Images
+come out untouched (`.jpeg` stays `.jpeg`). A PDF doesn't store files at all;
+it stores decoded pixels, so images from a PDF are re-encoded as PNG. Images
 under 64px on a side are treated as rules, bullets and icons and skipped.
 
 Turn the whole thing off with **Extract images** in settings for text-only
@@ -434,22 +434,22 @@ notes.
 ## Spreadsheets
 
 Every sheet is converted, hidden ones included. Hiding a sheet is a
-presentation choice, not a statement about the data — the hidden sheets in a
+presentation choice, not a statement about the data. The hidden sheets in a
 workbook are as often the raw table a visible pivot summarises as they are
-scratch space — so leaving them out silently guts the note. The frontmatter
+scratch space, so leaving them out silently guts the note. The frontmatter
 carries the count (`sheets_converted: 23/23`), so how much of the workbook
 made it across is the first thing you see rather than a footnote after two
 thousand lines.
 
 `.ods` behaves identically, and gets there with much less work: LibreOffice
 stores each cell's *displayed* text next to its raw value, so the number-format
-machinery `.xlsx` needs — parsing format codes to recover `27.38` from
-`27.383982300884924`, scaling percentages — is simply unnecessary. The answer
+machinery `.xlsx` needs (parsing format codes to recover `27.38` from
+`27.383982300884924`, scaling percentages) is simply unnecessary. The answer
 is already written down.
 
 **Convert hidden sheets** in settings turns that off. When it's off, the
-skipped sheets are listed *by name* in the conversion notes — `Skipped
-(hidden): raw data (monthly), Region, Agebracket` — because a count alone
+skipped sheets are listed *by name* in the conversion notes, as in `Skipped
+(hidden): raw data (monthly), Region, Agebracket`, because a count alone
 tells you nothing you can act on. A hidden sheet that a visible sheet's
 formulas, a pivot cache or a chart series reads from is converted regardless
 of the setting: that dependency is a far stronger signal than the hidden flag,
@@ -457,7 +457,7 @@ and it's reported too.
 
 ## OCR
 
-An image file has no structure to read, so converting one runs Tesseract — a
+An image file has no structure to read, so converting one runs Tesseract, a
 classical OCR engine (line segmentation plus an LSTM character recogniser)
 compiled to WASM. It is not an LLM, takes no API key, and the image never
 leaves your machine.
@@ -475,14 +475,14 @@ pages_read_by_ocr: 12
 > [!info]- Conversion notes
 > - 12 pages had no text layer and were read by OCR instead (pages 3, 4, 5, …).
 >   That part of the note is a recognition rather than an extraction and can be
->   wrong — lowest confidence was 71%.
+>   wrong. Lowest confidence was 71%.
 
-The page image itself isn't also embedded — for a 200-page scan that would be
+The page image itself isn't also embedded. For a 200-page scan that would be
 200 full-page PNGs burying the text they duplicate. Expect roughly a second or
 two per scanned page; the notice counts them off as it goes.
 
-The engine and its English model are not shipped in the plugin — an Obsidian
-release can only contain `main.js`, `manifest.json` and `styles.css` — so they
+The engine and its English model are not shipped in the plugin. An Obsidian
+release can only contain `main.js`, `manifest.json` and `styles.css`, so they
 download from jsdelivr the first time you convert an image:
 
 | What | Size | Cached in |
@@ -496,17 +496,17 @@ plugin touches the network at all.
 
 The download happens inside the first conversion, so that one takes noticeably
 longer than the rest. The notice reports what it's doing while it waits
-(`loading language traineddata — 61%`) rather than sitting on "Converting…".
+(`loading language traineddata (61%)`) rather than sitting on "Converting…".
 
-Regions Tesseract is unsure of — lettering picked out of a photograph, logo
-marks, JPEG artefacts — are dropped rather than written into the note as
+Regions Tesseract is unsure of (lettering picked out of a photograph, logo
+marks, JPEG artefacts) are dropped rather than written into the note as
 gibberish, and counted in the conversion notes. Large display type reversed out
 of a coloured background is the common thing OCR misses; check the note against
 the image when the confidence warning appears.
 
 **Tables in a scan or a photo come out as tables**, found the same way as in a
 PDF: from where the words sit. Tesseract's own layout analysis reads a table a
-column at a time — every date, then every description, then every amount — and
+column at a time (every date, then every description, then every amount) and
 can cut a narrow column of figures off into a block of its own and misread it,
 so a page that looks like it holds a table is read a second time as one block
 of lines, which keeps each row whole. A page tilted on the scanner or in a
@@ -516,7 +516,7 @@ than 80% confidence is flagged, and anything OCR read in a table's area that
 didn't make it into the table is named.
 
 Two systematic artefacts are repaired afterwards, both of them the same kind of
-thing as the PDF extractor's de-hyphenation — undoing a known, predictable
+thing as the PDF extractor's de-hyphenation: undoing a known, predictable
 distortion rather than guessing at content.
 
 **Paragraphs are rebuilt from where the lines sit,** not from Tesseract's own
@@ -524,26 +524,26 @@ paragraph division. That division assumes scanned prose, and a screenshot isn't
 scanned prose: on a three-line paragraph of a web page it put the last line in
 a separate *block*, and on a chat transcript it split one message across two
 while merging a timestamp and an unrelated name into one. The geometry settles
-it — a line whose following word wouldn't have fitted was wrapped, so what
+it: a line whose following word wouldn't have fitted was wrapped, so what
 comes next at the same left margin continues it; a line that stopped with room
 to spare ended its paragraph. Lines further apart than about one line's leading
 are never joined, which is what keeps separate chat bubbles separate.
 
 **A lone `|` is read back as `I`.** In a sans-serif face a capital I has no
-serifs and no crossbar — it is a plain vertical stroke, pixel-identical to a
-pipe — so "I put together our plans" comes back as "| put together our plans".
+serifs and no crossbar. It is a plain vertical stroke, pixel-identical to a
+pipe, so "I put together our plans" comes back as "| put together our plans".
 The repair is narrow on purpose: only a bar standing alone as a word with a
 lowercase word after it, which is the shape of the English pronoun, and never
 on a line holding two or more free-standing bars, where they are far more
 likely to be a table rule.
 
-What isn't repaired is an *image* recognised as a letter — an avatar or an icon
+What isn't repaired is an *image* recognised as a letter. An avatar or an icon
 next to a line of text can come through as a stray `Q` or `O`, and there is no
 way to tell that from a real character without understanding the picture.
 
 ### Locked-down machines
 
-If that CDN is blocked — common on corporate networks — put the two files in a
+If that CDN is blocked, as is common on corporate networks, put the two files in a
 vault folder and name it in **OCR engine folder** in settings. OCR then reads
 them straight from disk and makes no network request at all, on the first run
 or any other.
@@ -560,14 +560,14 @@ conversion says which one.
 ## Known limits
 
 - **Column detection is geometric, not semantic.** It reads the horizontal
-  distribution of ink per page, so a layout no gutter runs through — text
-  wrapped around a figure, a magazine-style collage — can still come out in
+  distribution of ink per page, so a layout no gutter runs through (text
+  wrapped around a figure, a magazine-style collage) can still come out in
   the wrong order.
 - **PDF tables are found by alignment, and only when it's convincing.** A
   PDF has no tables, only text that lines up, so a table is recognised by
   strips of the page that none of its rows crosses. Prose never has those,
   but text set in narrow columns, or in a monospaced font where word gaps
-  line up by chance, can — so a block whose columns read as running text is
+  line up by chance, can. So a block whose columns read as running text is
   left as text. Two columns become a table only when the right one is
   numbers (a receipt, an invoice's totals); two columns of words are as
   often labels beside values. A missed table reads as before, a run of words;
@@ -586,9 +586,9 @@ conversion says which one.
 - **OCR is English only.** The one language model that gets downloaded is
   `eng`; a scan in another language will come out as approximately-English
   nonsense, and the confidence warning is the signal.
-- **Windows metafiles (EMF/WMF)** can't be embedded — nothing in Obsidian
-  renders them — so they're skipped and counted.
-- **Excel formulas** export as their last-calculated value — the value Excel
+- **Windows metafiles (EMF/WMF)** can't be embedded because nothing in Obsidian
+  renders them. They're skipped and counted.
+- **Excel formulas** export as their last-calculated value: the value Excel
   itself stored in the file.
 - **Charts and embedded objects** in decks are skipped and counted; a chart is
   a data structure, not a picture, so there's nothing to embed.
@@ -600,7 +600,7 @@ conversion says which one.
   save has the bytes and embeds them.
 - **Main-content detection on a web page is a heuristic.** It uses the page's
   own markers (`main`, `article`, ARIA roles, the usual container ids), and
-  what it set aside is named in the conversion notes — so a page that hides
+  what it set aside is named in the conversion notes, so a page that hides
   its article in an unlabelled `div` is a visible omission rather than a
   mysteriously short note.
 - **HTML tables can't express merged cells.** A `colspan` or `rowspan` is laid
@@ -648,7 +648,7 @@ is in [`docs/plans/types-and-templates.md`](docs/plans/types-and-templates.md).
 Obsidian's `DOMParser` handles XML and HTML; Node has neither, and no one
 package does both well. The harness uses `@xmldom/xmldom` for OOXML,
 OpenDocument and XHTML parts, and `linkedom` for `text/html`, which is the only
-one that parses tag soup — unclosed `<p>`, bare `<img>` — the way a browser
+one that parses tag soup (unclosed `<p>`, bare `<img>`) the way a browser
 does. Both are dev dependencies and neither is bundled.
 
 ### Note on dependencies
@@ -656,7 +656,7 @@ does. Both are dev dependencies and neither is bundled.
 The zip reader is hand-rolled (`src/zip.ts`) rather than JSZip. JSZip's
 transitive dependencies create `<script>` elements as a legacy task-scheduling
 trick, which gets plugins flagged by Obsidian's community-plugin review as
-"code obfuscation" — a false positive that is simpler to avoid than to argue.
+"code obfuscation", a false positive that is simpler to avoid than to argue.
 PNG encoding for PDF images is hand-rolled too (`src/png.ts`), on top of the
 `zlib` the zip reader already uses, so it works identically in Obsidian and in
 the Node harness.
@@ -665,7 +665,7 @@ The runtime dependencies are `pdfjs-dist` and `tesseract.js`. Both normally
 load their worker script from a separate file or a CDN at runtime; a plugin
 release can only ship `main.js`, `manifest.json` and `styles.css`, so both
 workers are inlined at build time and handed to the library as a Blob URL.
-Tesseract's WASM engine and language data still come from a CDN on first use —
+Tesseract's WASM engine and language data still come from a CDN on first use;
 they're too large to inline, and the language data has to be fetched somehow.
 
 ## License
@@ -678,17 +678,17 @@ The released `main.js` is a bundle, so it carries these with it:
 
 | Bundled | License |
 | --- | --- |
-| [pdfjs-dist](https://github.com/mozilla/pdf.js) — PDF text and image extraction | Apache-2.0 |
-| [tesseract.js](https://github.com/naptha/tesseract.js) — OCR API and worker | Apache-2.0 |
-| [idb-keyval](https://github.com/jakearchibald/idb-keyval) — via tesseract.js, caches the OCR model | Apache-2.0 |
-| [wasm-feature-detect](https://github.com/GoogleChromeLabs/wasm-feature-detect) — via tesseract.js, picks the SIMD build | Apache-2.0 |
+| [pdfjs-dist](https://github.com/mozilla/pdf.js): PDF text and image extraction | Apache-2.0 |
+| [tesseract.js](https://github.com/naptha/tesseract.js): OCR API and worker | Apache-2.0 |
+| [idb-keyval](https://github.com/jakearchibald/idb-keyval): via tesseract.js, caches the OCR model | Apache-2.0 |
+| [wasm-feature-detect](https://github.com/GoogleChromeLabs/wasm-feature-detect): via tesseract.js, picks the SIMD build | Apache-2.0 |
 
 Fetched on the first image conversion rather than redistributed here:
 
 | Downloaded at runtime | License |
 | --- | --- |
-| [tesseract.js-core](https://github.com/naptha/tesseract.js-core) — the WASM recogniser | Apache-2.0 |
-| [tessdata](https://github.com/tesseract-ocr/tessdata_best) `eng.traineddata` — the English model | Apache-2.0 |
+| [tesseract.js-core](https://github.com/naptha/tesseract.js-core): the WASM recogniser | Apache-2.0 |
+| [tessdata](https://github.com/tesseract-ocr/tessdata_best) `eng.traineddata`: the English model | Apache-2.0 |
 
 Apache-2.0 is compatible with this plugin's MIT license, and none of these ship
 a NOTICE file that would require further attribution. Nothing else is bundled:

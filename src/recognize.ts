@@ -403,7 +403,7 @@ function layoutRows(blocks: RecognisedBlock[]): {
     return {
       rows: [],
       tilt,
-      skipped: "its lines aren't straight across the page — a photo taken at an angle, or paper that isn't flat",
+      skipped: "its lines aren't straight across the page, as in a photo taken at an angle or of paper that isn't flat",
     };
   }
 
@@ -726,6 +726,6 @@ const BLOB_PATH_SHIM = `(() => {
 export function forPage(ocr: OcrProvider, page: number, total: number): OcrProvider {
   return {
     resolve: () => ocr.resolve(),
-    report: (status, progress) => ocr.report?.(`page ${page} of ${total} — ${status}`, progress),
+    report: (status, progress) => ocr.report?.(`page ${page} of ${total}: ${status}`, progress),
   };
 }

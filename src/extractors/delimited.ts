@@ -68,7 +68,7 @@ async function convert(data: Buffer, forced: string | null): Promise<ExtractResu
     const shown = ragged.slice(0, 10).join(", ");
     warnings.push(
       `${ragged.length} row${ragged.length === 1 ? "" : "s"} had fewer than ${width} fields and ` +
-        `${ragged.length === 1 ? "was" : "were"} padded with empty cells — row${
+        `${ragged.length === 1 ? "was" : "were"} padded with empty cells: row${
           ragged.length === 1 ? "" : "s"
         } ${shown}${ragged.length > 10 ? ", …" : ""}.`
     );

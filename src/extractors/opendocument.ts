@@ -68,7 +68,7 @@ export async function extractOpenDocument(
   if (context.skippedIndexes.length > 0) {
     warnings.push(
       `${context.skippedIndexes.length} generated index${context.skippedIndexes.length === 1 ? "" : "es"} left out ` +
-        `(${context.skippedIndexes.join(", ")}) — a table of contents or bibliography that the word processor ` +
+        `(${context.skippedIndexes.join(", ")}) because each is a table of contents or bibliography that the word processor ` +
         "rebuilds from the document, so it lists page numbers this note doesn't have."
     );
   }

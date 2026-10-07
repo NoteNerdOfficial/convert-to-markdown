@@ -57,7 +57,7 @@ export async function extractMhtml(data: Buffer, assets: AssetSink): Promise<Ext
   const archive = parseMime(data);
   const parts = flattenParts(archive);
   const page = parts.find((part) => part.contentType === "text/html");
-  if (!page) throw new Error("no HTML part in this archive — it may be a plain email rather than a saved page");
+  if (!page) throw new Error("no HTML part in this archive; it may be a plain email rather than a saved page");
 
   const warnings: string[] = [];
   const { lines, dropped } = await renderPage(partText(page), parts, assets, { stripFurniture: true });
@@ -133,7 +133,7 @@ async function renderMessage(
   const placed = new Set<string>();
 
   if (!body) {
-    warnings.push("This message has no text body — it may be attachments only.");
+    warnings.push("This message has no text body. It may be attachments only.");
   } else if (body.chosen.contentType === "text/html") {
     const page = await renderPage(partText(body.chosen), parts, assets, { stripFurniture: false });
     lines.push(...page.lines);
@@ -293,7 +293,7 @@ async function renderAttachments(
 
   if (named.length > 0) {
     warnings.push(
-      `${named.length} attachment${named.length === 1 ? "" : "s"} not converted — open the original message ` +
+      `${named.length} attachment${named.length === 1 ? "" : "s"} not converted. Open the original message ` +
         `for ${named.length === 1 ? "it" : "them"}: ${named.join(", ")}.`
     );
   }

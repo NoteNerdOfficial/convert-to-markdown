@@ -22,7 +22,7 @@ export async function extractHtml(data: Buffer, assets: AssetSink): Promise<Extr
   const source = decodeText(data, declaredCharset(data));
   const document = parseHtml(source);
   const { root, dropped } = findMainContent(document);
-  if (!root) throw new Error("the file has no <body> — it may not be HTML");
+  if (!root) throw new Error("the file has no <body>, so it may not be HTML");
 
   const { images, unresolved } = await resolveImages(collectImageSources(root), assets, () => null);
   const lines = renderHtml(root, { images });
@@ -119,7 +119,7 @@ function describeGaps(dropped: string[], unresolved: string[], assets: AssetSink
   if (remote.length > 0) {
     warnings.push(
       `${remote.length} image${remote.length === 1 ? "" : "s"} ${remote.length === 1 ? "is" : "are"} linked to the ` +
-        "web rather than stored in the file, so nothing could be copied into the vault — they are embedded as " +
+        "web rather than stored in the file, so nothing could be copied into the vault. They are embedded as " +
         "links and will only display online."
     );
   }

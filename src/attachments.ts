@@ -29,7 +29,7 @@ export function attachmentFolderFor(template: string, noteFolder: string, noteBa
     if (part === "" || part === ".") continue;
     if (part === "..") {
       if (segments.length === 0) {
-        throw new Error(`attachment folder "${template}" points outside the vault — check the setting`);
+        throw new Error(`attachment folder "${template}" points outside the vault. Check the setting`);
       }
       segments.pop();
       continue;

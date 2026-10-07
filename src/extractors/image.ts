@@ -40,12 +40,12 @@ export async function extractImage(
     warnings.push("OCR found no text in this image.");
   } else if (confidence < 70) {
     warnings.push(
-      `OCR confidence was low (${Math.round(confidence)}%) — check the text against the image before relying on it.`
+      `OCR confidence was low (${Math.round(confidence)}%). Check the text against the image before relying on it.`
     );
   }
   if (discarded > 0) {
     warnings.push(
-      `${discarded} unreadable region${discarded === 1 ? "" : "s"} dropped — usually text over a photo, or something that isn't text at all.`
+      `${discarded} unreadable region${discarded === 1 ? "" : "s"} dropped. That's usually text over a photo, or something that isn't text at all.`
     );
   }
   // A misread digit in a table is a wrong amount, not a typo, so tables get a
@@ -53,12 +53,12 @@ export async function extractImage(
   const doubtful = blocks.filter((block) => block.kind === "table" && block.confidence < LOW_TABLE_CONFIDENCE);
   if (doubtful.length > 0) {
     const which = doubtful.length === 1 ? "A table was" : `${doubtful.length} tables were`;
-    warnings.push(`${which} read with OCR confidence below ${LOW_TABLE_CONFIDENCE}% — check the figures against the image.`);
+    warnings.push(`${which} read with OCR confidence below ${LOW_TABLE_CONFIDENCE}%. Check the figures against the image.`);
   }
   if (recognition.unplaced.length > 0) {
     warnings.push(
-      `OCR read these in a table's area, but they aren't in the table: ${recognition.unplaced.map(escapeInline).join(", ")} — ` +
-        "check the table against the image."
+      `OCR read these in a table's area, but they aren't in the table: ${recognition.unplaced.map(escapeInline).join(", ")}. ` +
+        "Check the table against the image."
     );
   }
   if (recognition.tablesSkipped) {

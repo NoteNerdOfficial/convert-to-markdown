@@ -78,7 +78,7 @@ export async function readFormFields(document: PDFDocumentProxy): Promise<FormFi
 
   const warnings: string[] = [];
   if (fields.length > 0 && filled.length === 0) {
-    warnings.push(`The form is blank — none of its ${fields.length} fields are filled in.`);
+    warnings.push(`The form is blank: none of its ${fields.length} fields are filled in.`);
   } else {
     // Named, not counted: which fields were left empty is what someone
     // checking a returned form needs to chase.

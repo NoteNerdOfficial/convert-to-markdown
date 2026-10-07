@@ -307,14 +307,14 @@ function checkTransactions(found: Transactions, opening: number | null, closing:
     });
     problems.push(
       `The running balance doesn't follow from the transactions on ${chosen.wrongRows.length} row` +
-        `${chosen.wrongRows.length === 1 ? "" : "s"}: ${named.join("; ")}${chosen.wrongRows.length > 8 ? "; …" : ""} — ` +
-        "check them against the original."
+        `${chosen.wrongRows.length === 1 ? "" : "s"}: ${named.join("; ")}${chosen.wrongRows.length > 8 ? "; …" : ""}. ` +
+        "Check them against the original."
     );
   }
   if (!chosen.periodOk && opening !== null && closing !== null) {
     problems.push(
       `The opening balance ${format(opening)} and the transactions (${format(chosen.total)}) come to ` +
-        `${format(round(opening + chosen.total))}, but the closing balance is ${format(closing)} — check the figures against the original.`
+        `${format(round(opening + chosen.total))}, but the closing balance is ${format(closing)}. Check the figures against the original.`
     );
   }
   return problems.length > 0 ? problems : null;

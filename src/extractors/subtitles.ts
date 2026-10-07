@@ -21,7 +21,7 @@ export async function extractSubtitles(data: Buffer): Promise<ExtractResult> {
   const track = parseTrack(decodeText(data));
 
   if (track.cueCount === 0 && track.malformed.length === 0) {
-    throw new Error("no subtitle cues found — the file has no `-->` timing lines");
+    throw new Error("no subtitle cues found: the file has no `-->` timing lines");
   }
 
   const paragraphs = groupIntoParagraphs(track.turns);
@@ -203,8 +203,8 @@ function describeGaps(track: Track): string[] {
       track.regionBlocks > 0 ? `${track.regionBlocks} REGION` : null,
     ].filter(Boolean);
     warnings.push(
-      `${blocks.join(" and ")} block${track.styleBlocks + track.regionBlocks === 1 ? "" : "s"} dropped — ` +
-        "they position and colour the captions on screen and carry no text."
+      `${blocks.join(" and ")} block${track.styleBlocks + track.regionBlocks === 1 ? "" : "s"} dropped. ` +
+        "They position and colour the captions on screen and carry no text."
     );
   }
 

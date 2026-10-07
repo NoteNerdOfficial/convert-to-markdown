@@ -73,7 +73,7 @@ export function createAssetSink(write: (data: Buffer, name: string) => Promise<s
 export function droppedImagesWarning(count: number, extractionEnabled: boolean): string {
   const images = count === 1 ? "1 image" : `${count} images`;
   return extractionEnabled
-    ? `${images} could not be extracted — usually Windows metafiles (EMF/WMF), which nothing here can render.`
+    ? `${images} could not be extracted. These are usually Windows metafiles (EMF/WMF), which nothing here can render.`
     : `${images} left out (image extraction is off in settings).`;
 }
 

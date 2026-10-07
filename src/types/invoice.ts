@@ -254,7 +254,7 @@ function checkItems(items: LineItems, found: Map<string, FoundField>): string | 
   if (Math.abs(sum - expected) <= TOLERANCE) return null;
   return (
     `The line items (${escapeInline(items.column)}) add up to ${format(sum)}, but the ${against} is ` +
-    `${format(expected)} — check both against the original.`
+    `${format(expected)}. Check both against the original.`
   );
 }
 
@@ -275,5 +275,5 @@ function checkSum(found: Map<string, FoundField>): string | null {
     ...(shipping ? [`shipping ${format(shipping)}`] : []),
     ...(discount ? [`less discount ${format(discount)}`] : []),
   ];
-  return `${parts.join(", ")} come to ${format(expected)}, but the total is ${format(total)} — check the figures against the original.`;
+  return `${parts.join(", ")} come to ${format(expected)}, but the total is ${format(total)}. Check the figures against the original.`;
 }

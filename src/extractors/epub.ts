@@ -28,7 +28,7 @@ export async function extractEpub(data: Buffer, assets: AssetSink): Promise<Extr
     // Font obfuscation also lives in this file, but a reader can't tell the
     // two apart without trying, and the failure to describe is the likely one.
     throw new Error(
-      "this EPUB is encrypted (DRM) — its text can't be read without the reader app it was bought from"
+      "this EPUB is encrypted (DRM), so its text can't be read without the reader app it was bought from"
     );
   }
 
@@ -39,7 +39,7 @@ export async function extractEpub(data: Buffer, assets: AssetSink): Promise<Extr
   const opf = parseXml(packageXml);
   const manifest = readManifest(opf, packagePath);
   const spine = readSpine(opf, manifest);
-  if (spine.length === 0) throw new Error("this EPUB's spine is empty — there is no reading order to follow");
+  if (spine.length === 0) throw new Error("this EPUB's spine is empty, so there is no reading order to follow");
 
   const titles = readContents(zip, opf, manifest);
   const warnings: string[] = [];
