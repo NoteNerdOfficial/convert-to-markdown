@@ -1,6 +1,10 @@
-# Plan: document types and templates
+# Document types and templates
 
-Status: proposal · 2026-10-06
+Status: built — phases 0–7 done · planned 2026-10-06, completed 2026-10-06
+
+This started as a plan and is now the record of what was built and why. Where
+the build departed from the plan, the section says so and gives the reason.
+What's still open is at the end.
 
 ## Goal
 
@@ -13,301 +17,248 @@ shaped for that kind of document:
 - the original file embedded in the note,
 - all of it laid out by a template the user controls.
 
-"General" stays the default and its output doesn't change except where shared
-improvements (tables, embed-original) make it better.
+"General" conversion stays the default, and its output changed only where
+shared improvements made it better: tables, the embed-original setting,
+form fields, and frontmatter quoting.
 
-## Principles carried over
+## Principles
 
 - **Deterministic.** No LLM. A type is a set of label rules and a layout,
   not a model that "understands" the document. The same file and settings
   always produce the same note.
 - **Coverage is visible.** Every field a type expects but couldn't find is
   named in `missing_fields`. Every value that came from OCR or a guess is
-  marked as such. Arithmetic that doesn't add up is reported.
-  Nothing goes missing silently.
+  marked as such. Arithmetic that doesn't add up is reported with both
+  numbers. Nothing goes missing silently.
 - **Explicit over inferred.** The user picks the type. Nothing guesses it.
 - **Bail out instead of inventing structure.** A table that doesn't line up
-  convincingly stays as text, the way column detection in `pdf.ts` already
-  refuses doubtful columns.
+  convincingly stays as text. A missed table reads as before; an invented one
+  scrambles text that was fine.
 
-## Architecture
+## How it works
 
 ```
-                 ┌──────────────┐     ┌───────────────┐
- text PDF ──────▶│ pdf.js glyphs│──┐  │               │
-                 └──────────────┘  ├─▶│ Layout model  │──▶ General render (today's output + tables)
- image / scanned ┌──────────────┐  │  │ words, lines, │
- PDF page ──────▶│ Tesseract    │──┘  │ tables, k/v   │──▶ Type profile ──▶ Template ──▶ note
-                 │ word boxes   │     └───────────────┘     (fields,        (user note
-                 └──────────────┘                            checks)         or default)
+ text PDF ───────▶ pdf.js runs ──┐                    ┌──▶ General note (paragraphs + tables)
+                                 ├─▶ positioned rows ─┤
+ image / scanned ─▶ Tesseract ───┘   + tables          └──▶ Document type ──▶ Template ──▶ typed note
+ PDF page           words, joined    (ExtractResult        (fields, checks,    (user note or
+                    into runs         .layout)              provenance)         built-in)
 ```
 
-### 1. Layout model (`src/layout/`)
+### Layout (`src/layout/`)
 
-A format-neutral description of a page:
+`LayoutRow` is a line of positioned text, `y` growing down the page;
+`LayoutItem` is a run on it with `x`, `width` and `size`. `LayoutPage`
+(`page.ts`) holds a page's rows, the tables found among them, and whether
+the text was extracted (`text`) or recognised (`ocr`). Extractors with
+positions (PDF, images) return pages as `ExtractResult.layout`.
 
-```ts
-interface Word   { text: string; box: Box; size: number; confidence?: number } // confidence only from OCR
-interface Line   { words: Word[]; box: Box }
-interface Page   { lines: Line[]; tables: Table[]; pairs: LabelValue[]; source: "text" | "ocr" }
-interface Table  { rows: Cell[][]; header: boolean; numericColumns: number[]; box: Box }
-interface LabelValue { label: string; value: string; box: Box; layout: "inline" | "beside" | "below" }
-```
+*Changed from the plan:* the planned `Word`/`Line`/`Page` types with boxes
+and a separate label/value layer were more than was needed. Rows of runs
+carry everything the table detector and the field finder use.
 
-- **pdf.ts** already has `PositionedItem`s and rows; it gains an adapter
-  that turns them into `Word`s and `Line`s. Existing paragraph, heading and
-  column logic is unchanged.
-- **recognize.ts** keeps the word boxes it currently discards
-  (`line.words[].bbox`, `confidence`) and returns `Line`s alongside
-  `paragraphs`. `buildParagraphs` stays as it is.
-- `ExtractResult` gains an optional `layout?: Page[]`. Only extractors that
-  have geometry (pdf, image) fill it in. Types work from `layout`, so they
-  don't depend on the file format.
+### Tables (`src/layout/tables.ts`)
 
-### 2. Table detection (`src/layout/tables.ts`), shared by PDF and OCR
+A column boundary is a strip of the page that **no row of a block puts ink
+on**. That's what lets the detector find a browser's tight invoice columns,
+set a third of an em apart (narrower than a word space), while leaving prose
+alone, since word gaps fall somewhere different on every line.
 
-Works on lines of words, using gaps between words, not drawn rules:
+- **Blocks:** rows close enough to be one table. Wide gaps continue a block
+  when the row pitch repeats (LibreOffice sets rows nearly three lines apart)
+  or when a header steps down to its first row. A heading set much larger
+  than its neighbours ends a block. A block where nothing holds up is split
+  at its widest gap and searched again, and a block can hold several tables.
+- **Edges:** a table starts with a header labelling at least half the
+  columns and ends with a row of at least two cells. One-row columns are
+  folded into a neighbour unless they're a row label at the table's edge
+  ("Total").
+- **Rows:** baselines fold into one row when they're a wrapped line or cells
+  centred against a tall one. What "close enough" means is learned per table
+  from its two kinds of gap (leading inside a cell, padding between rows),
+  with a fixed limit when it has only one.
+- **Not tables:** two columns are a table only when the right one is
+  numbers. Columns of running text are rejected, and so are monospaced
+  sentences split at false gutters (columns mostly starting lowercase).
+- Number columns are right-aligned.
 
-1. Split each line into **cells** wherever the gap between neighbouring
-   words is more than ~1.5× the line's typical space width.
-2. Find **runs of consecutive lines** with two or more cells whose edges line
-   up on shared column anchors. Text columns align on their left edge,
-   number columns on their right edge (that's how invoices set amounts).
-3. Accept a run as a table only if:
-   - it has ≥ 3 rows, **and** ≥ 3 columns, **or** exactly 2 columns where
-     the right one is numeric (receipt lines like `Coffee ……… 4.50`),
-   - and ≥ 80% of its cells sit on an anchor.
+*Changed from the plan:* the plan split lines at gaps wider than 1.5 word
+spaces and matched cell edges to anchors. Real PDFs broke that immediately,
+with columns closer than a word space, so the strip-based method replaced it.
+The header is always the first row, following the repo's existing `table()`
+convention, rather than being detected.
 
-   Otherwise the lines are left as text.
-4. **Header:** the first row, if it's all non-numeric and the rows below it
-   aren't.
-5. **Wrapped cells:** a row with only the first column filled, directly
-   under a full row, continues that row's description.
-6. Render as a Markdown table, with numeric columns right-aligned (`---:`).
+### Tables in scans and photos (`src/recognize.ts`)
 
-**OCR-specific:**
+- **Words joined into runs:** OCR words closer than one line height are
+  joined into runs before detection, so an OCR'd row looks like a PDF's.
+- **Tilt is straightened, not refused:** the page's median baseline slope is
+  taken out first. Tables are skipped, with a note, only when baselines
+  disagree with each other (a photo at an angle, curled paper).
+- **A second OCR pass when a page hints at a table:** Tesseract's layout
+  analysis cuts a narrow column of figures into a block of its own and
+  misreads it ("4.75" came back as ".75"), so when the ordinary reading has
+  three or more rows with separate runs, the page is read again as one block
+  of lines. Tables come from that pass; everything else, including the rows
+  fields are read from, comes from the ordinary one.
+- **Doubtful tables are flagged:** under 80% confidence; and words the
+  ordinary reading found in a table's area but missing from the table are
+  named.
 
-- Word boxes from a photo drift more than glyph positions, so the anchor
-  tolerance scales with line height rather than being a fixed point value.
-- A table whose words average below the OCR confidence threshold is
-  rendered, but listed in conversion notes as "table on page N read by OCR,
-  check against the original".
-- **Tilt check:** if a line's baseline drifts more than about half a line
-  height across the page, the photo is too skewed for column anchors.
-  Detection bails out for that page and the conversion notes say why.
-  Mild skew is fine (Tesseract deskews internally). Perspective-distorted
-  phone photos are out of scope for v1.
+*Changed from the plan:* the plan bailed out on tilt. Straightening worked
+up to the 4° tested, so only warped pages are skipped. The second pass
+wasn't planned; it was the fix for Tesseract's own layout step.
 
-Out of scope for v1: tables defined only by drawn ruling lines with ragged
-text, merged/spanning header cells, and nested tables.
+### Fields (`src/types/fields.ts`, `values.ts`)
 
-### 3. Label/value detection (`src/layout/pairs.ts`)
+A `FieldSpec` is a key, a display name, the labels documents print for it,
+a kind (`text`, `id`, `account`, `money`, `date`, `block`), whether it's
+core (named in `missing_fields` when absent), and which occurrence wins a
+tie. Values are found:
 
-Finds the three ways a document pairs a label with a value:
+- **inline:** before any colon on a line (`Account ending 4821 · Statement
+  period: …` yields the period), or a label's words followed by the value
+  (`Amount due $1,469.00`);
+- **beside:** the next run on the line, or centred against a label that
+  wraps onto two lines;
+- **below:** the line under the label, or every line until a gap for a
+  `block` field like an address.
 
-| Layout | Example |
-|---|---|
-| inline | `Invoice #: 1042` |
-| beside | `Due date` ……… `1 Nov 2026` (same baseline, big gap) |
-| below | `Invoice date` stacked over `6 Oct 2026` (same left edge, next line) |
+Labels are matched whole after normalising (case, trailing punctuation,
+`(13%)`, the ways of writing "No."), on either half of a bilingual label.
+The most specific label wins, then the most direct layout, then position. A
+`sum` field (tax) adds equally good matches on different lines.
 
-Every pair is collected. Types then pick the ones they want. Nothing is
-interpreted at this stage.
+`values.ts` parses money (`$1,469.00 CAD`, `−$11.30`, `(45.00)`,
+`1.234,56 €`; percentages are never amounts) and dates (`05 October 2026`,
+`Oct. 6, 2026`, ISO, `06/10/2026`). An all-number date is decided by the
+**Date order** setting and listed in `ambiguous_fields` whenever it could be
+read either way.
 
-### 4. Document types (`src/types/`)
+### Document types (`src/types/`)
 
-```ts
-interface DocumentType {
-  id: string;                 // "invoice"
-  name: string;               // "Invoice / receipt"
-  fields: FieldSpec[];
-  tables?: TableSpec[];       // e.g. line_items: the table whose header matches description/qty/amount
-  checks?: Check[];           // arithmetic that must hold
-  defaultTemplate: string;    // built-in template text
-}
+`DocumentType` has an id, a name, a built-in template, its fields, and
+`read(pages, dateOrder, extraLabels)`, which returns field values, blocks,
+the four provenance lists, and warnings. `shared.ts` holds the guesses both
+types use: the most prominent line at the top (skipping tables and
+title words), and the first date.
 
-interface FieldSpec {
-  key: string;                // "total"
-  labels: string[];           // ["total", "amount due", "balance due", "grand total"]
-  kind: "text" | "money" | "date" | "number" | "id";
-  strategy?: "pair" | "top-prominent";   // vendor uses top-prominent
-}
-```
+| Type | Properties | Block | Checks |
+|---|---|---|---|
+| **Invoice / receipt** (`invoice.ts`) | vendor, invoice_number, invoice_date, due_date, subtotal, tax, total, currency (plus po_number, bill_to, shipping, discount for templates) | `line_items` | items add up to the subtotal (or total); subtotal + tax + shipping − discount = total |
+| **Statement** (`statement.ts`) | institution, account_last4, period_start, period_end, opening_balance, closing_balance, currency | `transactions` | each row against the running balance; opening + transactions = closing; both sign conventions tried, the statement's own balances decide; one wrong figure reported once |
 
-Fields are matched case-insensitively against `pairs` labels after trimming
-punctuation. User-added labels from settings (see §6) are merged in.
+A statement's transactions are joined across pages by their repeated header.
+The invoice's line-items table is the one whose header reads like one, or,
+on a till receipt with no header, the largest table that isn't mostly
+totals. Rows from the first subtotal/total on aren't summed.
 
-**Normalization:**
-- `money` becomes a number, plus `currency` taken from a symbol or ISO code
-  if one is present.
-- `date` becomes ISO `YYYY-MM-DD`. An ambiguous date like `03/04/2026` is
-  decided by a "Date order" setting (DMY / MDY, defaulting from the system
-  locale). If even that can't decide, the raw text is kept and the field is
-  named in `ambiguous_fields`.
+### Templates (`src/template.ts`, `src/types/compose.ts`)
 
-**Provenance in frontmatter:**
-- `missing_fields: [due_date, po_number]`
-- `ocr_fields: [total, invoice_date]`: values that came from OCR text
-- `guessed_fields: [vendor]`: values that came from a fallback strategy,
-  not a label
+A template is an ordinary note with `{{field}}` placeholders, plus
+`{{content}}` (the whole conversion), `{{original}}` (the embed),
+`{{line_items}}`/`{{transactions}}`, and `{{title}}`/`{{date}}`/`{{time}}`
+as in core Templates. Date fields take a format: `{{due_date:DD MMM YYYY}}`.
 
-**Checks (invoice):**
-- line-item amounts sum to the subtotal
-- subtotal + tax = total
-
-A failed check is named in conversion notes with both numbers. This is the
-best defence against OCR misreads, which usually show up as a digit error
-that breaks the arithmetic.
-
-**Types in v1:**
-
-| Type | Fields | Table |
-|---|---|---|
-| **Invoice / receipt** | vendor, invoice_number, invoice_date, due_date, po_number, bill_to, subtotal, tax, total, currency | line_items |
-| **Statement** (bank/card), phase 7 | institution, account (last 4 only), period_start, period_end, opening_balance, closing_balance | transactions |
-
-Later candidates: academic paper, contract, meeting transcript, book
-(chapter split), slide deck. Each is just another `DocumentType` with its
-own fields and template, so none of them needs new architecture.
-
-### 5. Templates
-
-A template is an ordinary note in the vault, chosen per type in settings.
-Each type ships with a built-in default that's used when none is set.
-
-```markdown
----
-type: invoice
-vendor: {{vendor}}
-amount: {{total}}
-due: {{due_date}}
-status: unpaid
-tags: [finance, invoices]
----
-{{original}}
-
-## Line items
-{{line_items}}
-
-{{content}}
-```
-
-**Placeholders:**
-- every field key in the type, e.g. `{{total}}`
-- every table key in the type, e.g. `{{line_items}}`
-- `{{content}}`: the full General conversion
-- `{{original}}`: embed of the source file
-- `{{source}}`: link to the source file
-- `{{title}}`, `{{date}}`, `{{time}}`: same meaning as Obsidian core
-  Templates, so existing habits carry over
-- date fields accept a format: `{{due_date:DD MMM YYYY}}`
-
-**Rules:**
-- **Inside frontmatter**, a substituted value is written YAML-safe via the
-  existing `yamlValue`. Users write `vendor: {{vendor}}` without worrying
-  about colons or quotes in the value.
-- **Missing value:** the property is left empty (`due:`), never deleted.
-  Queries still see the key, and the field is named in `missing_fields`.
-- **Unknown placeholder** (`{{totl}}`): left as-is in the note and named in
-  conversion notes.
+- **Values are written YAML-safe:** a value is quoted where YAML would read
+  it as something else (`0042`, `yes`). Numbers are written bare, and ISO
+  dates stay dates.
+- **A missing value leaves the property empty,** never deleted.
+- **Unknown placeholders stay as typed** and are named in the notes.
+  Templater code is left untouched.
 - **Coverage keys are always written:** `source`, `source_format`,
-  `converted`, the extractor's coverage counts, `missing_fields`,
-  `ocr_fields`, `guessed_fields`, `ambiguous_fields`. If the template
-  doesn't place them, they're appended to its frontmatter. A template can
-  move them but can't remove them.
-- **Templater syntax** (`<% %>`) is left untouched and never executed.
-  Users who want it can run Templater on the result.
-- **Missing or unparseable template note:** the conversion uses the
-  built-in default and says so in conversion notes. It doesn't fail.
+  `converted`, coverage counts, and the four provenance lists. They go where
+  the template places them, otherwise appended.
+- **A deleted or unclosed template note** falls back to the built-in
+  template, with a note saying why.
 
-The template engine is about 150 lines: placeholder substitution,
-frontmatter-aware quoting, and the coverage-key merge. It is not a logic or
-loop language.
+*Changed from the plan:* the built-in templates leave out a separate
+`{{line_items}}` section, because `{{content}}` already contains the table
+and it showed twice. The engine is ~370 lines rather than ~150, since each
+place a placeholder can sit in YAML needs its own handling.
 
-### 6. Settings
+### Settings and UI
 
-**General:**
-- *Embed original file* (off by default, so existing output doesn't change):
-  above or below the converted text. In typed conversions, `{{original}}`
-  decides where it goes.
-- *Date order*: DMY / MDY / from system.
+- **File menu:** "Convert to Markdown as invoice / receipt" and "… as
+  statement" on PDFs and images.
+- **Commands:** "Convert a file as …" for each type.
+- **Embed the original PDF:** off / above / below (General conversions).
+  Typed conversions always provide `{{original}}`.
+- **Date order:** from system language / day first / month first.
+- **Per type, under its own heading at the end of settings:** **Template
+  note** (with a note picker and **Create from built-in**) and **Extra labels
+  to read fields by**, per field, comma-separated.
 
-**Per type** (one collapsible section each):
-- *Template note*: file suggester, empty = built-in default. Plus a
-  "Create from default" button that writes the built-in template into the
-  vault as a starting point.
-- *Extra labels*, per field: comma-separated, e.g.
-  Total → `Amount payable, Total TTC`.
+*Changed from the plan:* one menu item per type rather than a submenu, since
+two items read fine and avoid an undocumented API.
 
-**Later, not v1:**
-- user-defined fields ("value next to `PO Number` → `{{po_number}}`")
-- folder → default-type mapping (everything converted from `Invoices/`
-  is an invoice)
+### Fillable PDF forms (`src/extractors/pdfForms.ts`)
 
-### 7. UI
-
-- **File menu:** keep "Convert to Markdown" (General), and add a
-  "Convert to Markdown as…" submenu listing the types.
-- **Command palette:** "Convert a file as…", which picks the file, then
-  the type.
-- Types are offered only for formats that have a layout (pdf, images) in v1.
-  docx, odt and html are planned for v2 (see Decisions).
-
-## Fillable PDF forms
-
-Separate from types, and cheap: pdf.js `getFieldObjects()` returns a fillable
-form's actual field names and values. These go into frontmatter (General)
-and a key/value table in the body. This is exact, not heuristic. A form with
-fields but no values is named as unfilled.
+pdf.js `getFieldObjects()` gives a fillable form's real values. They go
+before the page text as a Field | Value table, with `form_fields_filled` in
+the frontmatter; empty fields, unticked boxes and signature fields are named
+in the notes. Field names aren't made properties: they aren't safe keys.
 
 ## Phases
 
-Each phase ships on its own and leaves General output either unchanged or
-strictly better.
+Each phase shipped on its own and left General output unchanged or better.
 
 | # | Phase | Status | Notes |
 |---|---|---|---|
 | 0 | **Embed original** setting | Done | PDF only: images embed themselves, and Obsidian can't show other formats inline. |
-| 1 | **Layout model** + OCR word boxes kept | Done | `src/layout/` works on positioned words (`LayoutRow`/`LayoutItem`), from pdf.js and from OCR alike; `ExtractResult.layout` carries each page's rows and tables. |
-| 2 | **Table detection on text PDFs** | Done | Columns are strips no row crosses, so prose and monospaced text stay text. Two columns are a table only when the right one is numbers. |
-| 3 | **Table detection on OCR** (images + scanned PDF pages) | Done | Words joined into runs, page tilt straightened rather than refused; a second single-block OCR pass when a page hints at a table, since Tesseract's layout analysis cuts columns of figures apart. Tables under 80% confidence flagged; words read in a table's area but missing from it named. Bails out only on warped pages. |
-| 4 | **Fillable form fields** | Done | Field \| Value table, `form_fields_filled` count, empty fields named. |
-| 5 | **Type framework + Invoice/receipt** with built-in template | Done | `src/types/`: label matching (inline, beside — including centred against a wrapped label — and below), money and date parsing, vendor and date fallbacks, line-items and sum checks, the four provenance lists, a menu item and command per type, Date order setting. The default template leaves `{{line_items}}` out, since `{{content}}` already holds the table. Not yet: reading tax out of a tax-summary table (Amazon's "Invoice subtotal" already includes tax, so the sum check would need to know that first). |
-| 6 | **Template notes + extra labels** | Done | Per type in settings: a template note (with a note picker and a "Create from built-in" button) and extra labels per field. A deleted or unclosed template note falls back to the built-in one with a note. User-defined fields and folder → type defaults remain "later". |
-| 7 | **Statement** type | Done | `src/types/statement.ts`: institution, `account_last4`, period, opening and closing balances; transactions joined across pages; running-balance and period checks that try both sign conventions and carry on past one wrong figure. The framework held up: shared guesses moved to `src/types/shared.ts`; field labels gained colon-anywhere matching and an account kind. |
+| 1 | **Layout model** | Done | Positioned rows of runs from pdf.js and OCR alike; `ExtractResult.layout`. |
+| 2 | **Tables in text PDFs** | Done | Strip-based column detection. |
+| 3 | **Tables in scans and photos** | Done | Word runs, tilt straightening, second OCR pass, confidence and unplaced-word notes. |
+| 4 | **Fillable form fields** | Done | |
+| 5 | **Type framework + invoice/receipt** | Done | Field finder, parsing, checks, provenance, menu/command, Date order. |
+| 6 | **Template notes + extra labels** | Done | Settings per type; fallback to built-in. |
+| 7 | **Statement type** | Done | Proved the framework general: only shared helpers and two field-matching improvements were needed. |
+
+Fixes made along the way: frontmatter values that YAML would retype are
+quoted (`yamlValue`); form fields are ordered line by line.
 
 ## Verification
 
-There's no test suite today. The harness (`tools/convert.mjs`) is the
-tool, so:
+There's no test suite, by design of the repo so far. Verification was:
 
-- **Harness flags:** `--type <id>` and `--template <file>`, so typed
-  conversions run outside Obsidian.
-- **Golden corpus** under `samples/invoices/`, made of *synthetic*
-  documents only (no real invoices committed):
-  - text PDFs from several generators: Word export, Google Docs,
-    an HTML-to-PDF billing-style layout, a LibreOffice export
-  - one fillable form
-  - a 300-dpi scan, a straight phone photo, a mildly tilted photo, and a
-    long thermal receipt
-- **Snapshot script:** converts the corpus and diffs against committed
-  expected `.md`. Phase 1 must produce zero diff. Each later phase
-  reviews its diff by hand before updating the snapshots.
-- **Per document, check:**
-  - the line-item table is correct
-  - every expected field is either right or named as missing (**never
-    wrong-and-unflagged**)
-  - checks pass, or fail with the right numbers
-- **In Obsidian** (obsidian-verify): the embedded PDF renders, properties
-  appear in the Properties view, and a Bases view over converted invoices
-  sorts by `total` and `due`.
+- **The harness:** `tools/convert.mjs`, with `TYPE`, `TEMPLATE`, `LABELS`
+  and `DATE_ORDER` environment variables for typed conversions.
+- **A synthetic corpus,** kept outside the repo:
+  - 24 text PDFs from Chrome and LibreOffice: invoices, receipts,
+    statements, a timetable and a table of contents, plus non-tables
+    (prose, two-column and monospaced text, newsletters, a fill-in form);
+  - 22 images and scans, clean, tilted 1.5° and 4°, noisy JPEG, and scanned
+    PDFs;
+  - a fillable form, a card statement, and a two-page statement with one
+    deliberately wrong balance;
+  - one real invoice supplied by the user.
+- **Byte comparison before and after every change:** General output was
+  compared for all of them; typed output was compared across later phases.
+- **The Demo vault, before each commit:** conversions, the menu, settings
+  and properties were checked in Obsidian.
+
+*Changed from the plan:* no committed `samples/` corpus or snapshot script.
+The synthetic files stayed in the session's scratch space, and real
+documents never enter the repo.
 
 ## Decisions
 
-1. **Types for docx/html invoices: planned for v2.** Those formats already
-   have real tables, so only the label/value step would be new. They get a
-   layout adapter in v2. v1 offers types for pdf and images only.
-2. **Money fields are plain numbers** (`total: 1240.5`, with
-   `currency: EUR` alongside), so Bases can sum and sort them.
-3. **Statement account numbers keep only the last four digits.** A note
-   vault is a poor place for full account numbers.
+1. **Types for docx/html: v2.** Those formats already have real tables;
+   they need a layout adapter. v1 offers types for PDFs and images.
+2. **Money fields are plain numbers** with `currency` alongside, so Bases
+   can sum and sort them. `$` is kept as printed, since it names a dozen
+   currencies.
+3. **Statements keep only the last four digits** of the account number as a
+   property. The full number stays in the converted text, as printed.
+
+## Open
+
+- **Tax read from a tax-summary table** (Amazon prints it only there). This
+  needs the sum check to recognise a subtotal that already includes tax,
+  or it would raise a false alarm.
+- **Address blocks set side by side** (Bill to | Ship to | Sold by) read
+  out of order in the General text.
+- **Tables:** cells merged across columns; scanned columns closer than a
+  stretched word space.
+- **Later:** user-defined fields; a default type per folder; types for
+  docx/odt/html (v2); further types (paper, contract, transcript).

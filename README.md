@@ -11,6 +11,14 @@ Documents are parsed directly from their own structure, which makes them fully
 deterministic and fully offline: the same file always produces byte-identical
 Markdown.
 
+Tables come out as tables, PDFs and scanned pages included. And an invoice,
+a receipt or a bank statement can be converted *as* one: its vendor, dates,
+amounts or balances become note properties you can sort and sum in Bases or
+Dataview, the figures are checked against each other, and anything it
+couldn't find or had to guess is said in the note. See [Invoices and
+receipts](#invoices-and-receipts) and [Bank and card
+statements](#bank-and-card-statements).
+
 Pixels are the one exception. An image file has no structure to read, and
 neither does a page of a scanned PDF, so reading either means OCR —
 statistical rather than structural, and occasionally wrong, which is why it
@@ -51,6 +59,12 @@ deciding whether one's even worth doing.
 - Right-click a supported file in the file explorer → **Convert to Markdown**
 - Or run **Convert to Markdown: Convert a file** from the command palette
 
+For a PDF or an image of an invoice, receipt or statement, the same menu has
+**Convert to Markdown as invoice / receipt** and **Convert to Markdown as
+statement**, and the command palette has **Convert a file as …** for each.
+The note then leads with that document's facts as properties; see
+[Invoices and receipts](#invoices-and-receipts).
+
 The note is written next to the original (configurable), never overwriting an
 existing note. Anything the converter dropped — images it couldn't render,
 sheets you asked it to leave out, a page's navigation, an email attachment —
@@ -86,6 +100,42 @@ moveable bare-filename link as `source`. It's off by default, and PDF-only:
 Obsidian can't display Office or e-book files inline, so for those the
 `source` link is all an embed would give you anyway.
 
+### Settings
+
+| Setting | What it does |
+|---|---|
+| **Save converted notes** / **Output folder** | Next to the original (default), or in one folder |
+| **Extract images** / **Save images** / **Image folder** | Whether images are written out and embedded, and where — see [Images](#images) |
+| **Embed the original PDF** | Show the PDF itself above or below the converted text |
+| **Date order** | How all-number dates like `06/10/2026` are read when converting as an invoice or statement |
+| **Convert hidden sheets** | Spreadsheets only — see [Spreadsheets](#spreadsheets) |
+| **OCR engine folder** | Supply the OCR engine from the vault instead of downloading it — see [OCR](#ocr) |
+| **Add frontmatter** / **Add conversion notes** | The properties at the top, and the callout of what was dropped at the end |
+| **Open after converting** | Open the new note |
+| **Invoice / receipt** and **Statement** → **Template note**, **Extra labels** | Your own layout for that type's notes, and your own labels for its fields — see [Your own template](#your-own-template) |
+
+## Tables
+
+Tables are rebuilt as Markdown tables wherever they turn up: Word,
+PowerPoint, spreadsheets and web pages have them as structure, and PDFs,
+scanned pages and photos have them as text that lines up, which is how they
+are found there:
+
+```markdown
+| Date | Description | Withdrawals | Deposits | Balance |
+| --- | --- | ---: | ---: | ---: |
+| Sep 2 | Payroll deposit ACME CORP |  | 2,450.00 | 4,590.18 |
+| Sep 3 | Rent e-transfer | 1,800.00 |  | 2,790.18 |
+```
+
+Empty cells stay empty in the right column, number columns are
+right-aligned, a description that wraps stays in its cell, and a header
+printed over several lines becomes one header. Text that only looks
+tabular — two columns of prose, monospaced text, a label beside its value —
+is left as text. A scan or photo that's a little crooked is straightened
+first. How it works, and where it stops, is under [OCR](#ocr) and [Known
+limits](#known-limits).
+
 ## Invoices and receipts
 
 Right-click a PDF or an image and choose **Convert to Markdown as invoice /
@@ -107,7 +157,22 @@ tags: [finance, invoices]
 
 Amounts are plain numbers and dates are ISO dates, so Bases and Dataview can
 sort, filter and sum them. Below the properties come the original, embedded,
-and the full conversion, tables included.
+and the full conversion, tables included. For example, with Dataview:
+
+````markdown
+```dataview
+TABLE vendor, total, due_date
+FROM #invoices
+WHERE due_date >= date(today)
+SORT due_date
+```
+````
+
+If your invoices use day-first dates — most of the world outside the US —
+check **Date order** in settings. Left on *From your system's language*, it
+follows the language Obsidian runs in, and a Mac set to US English reads
+`06/10/2026` as June 10. Either way, a date that could be read both ways is
+listed in `ambiguous_fields`.
 
 Fields are found by their labels and where the value sits — `Invoice #: 1042`,
 `Amount due` with the figure tabbed out beside it, an address under `Bill to`.
@@ -133,9 +198,10 @@ wrong — the conversion notes say so with both numbers.
 
 ### Your own template
 
-Under **Invoice / receipt** in settings, **Template note** picks a note to lay
-the converted notes out by, and **Create from built-in** writes the built-in
-template into your vault to start from. A template is an ordinary note with
+Under **Invoice / receipt** (or **Statement**) in settings, **Template
+note** picks a note to lay that type's notes out by, and **Create from
+built-in** writes the built-in template into your vault — as `Invoice
+template.md` or `Statement template.md` — and opens it to start from. A template is an ordinary note with
 placeholders:
 
 ```markdown
@@ -152,12 +218,18 @@ status: unpaid
 {{content}}
 ```
 
-Every field is a placeholder — `{{vendor}}`, `{{invoice_number}}`,
-`{{invoice_date}}`, `{{due_date}}`, `{{po_number}}`, `{{bill_to}}`,
-`{{subtotal}}`, `{{tax}}`, `{{shipping}}`, `{{discount}}`, `{{total}}`,
-`{{currency}}` — along with `{{line_items}}` for the items table alone,
-`{{original}}` for the embedded file, `{{content}}` for the whole conversion,
-and `{{title}}`, `{{date}}` and `{{time}}` as in Obsidian's own templates.
+Every field is a placeholder:
+
+- **Invoice / receipt:** `{{vendor}}`, `{{invoice_number}}`,
+  `{{invoice_date}}`, `{{due_date}}`, `{{po_number}}`, `{{bill_to}}`,
+  `{{subtotal}}`, `{{tax}}`, `{{shipping}}`, `{{discount}}`, `{{total}}`,
+  `{{currency}}`, and `{{line_items}}` for the items table alone
+- **Statement:** `{{institution}}`, `{{account_last4}}`, `{{period_start}}`,
+  `{{period_end}}`, `{{opening_balance}}`, `{{closing_balance}}`,
+  `{{currency}}`, and `{{transactions}}` for the transactions table alone
+- **Both:** `{{original}}` for the embedded file, `{{content}}` for the whole
+  conversion, and `{{title}}`, `{{date}}` and `{{time}}` as in Obsidian's own
+  templates
 Values are written into the properties safely, whatever's in them: an
 invoice number like `0042` stays text, and a vendor with a colon in its
 name doesn't break the YAML. A field that wasn't found leaves its property
@@ -172,7 +244,8 @@ never closes, gives way to the built-in template, with a note saying so.
 
 **Extra labels to read fields by**, below the template, takes your own labels
 per field — if your landlord's invoices say *Total to remit*, add it to
-Total.
+Total; if your bank calls the closing balance *Balance this statement*, add
+that to Closing balance.
 
 ## Bank and card statements
 
@@ -205,7 +278,8 @@ both readings are tried and the statement's own balances decide. A row
 whose balance doesn't follow is named by its date and description, and one
 misprinted balance is reported once, not as every row after it.
 
-Both types can be given a template note and extra labels in settings.
+Statements take a template note and extra labels in settings, the same way
+invoices do — see [Your own template](#your-own-template).
 
 ## Compared to markitdown
 
@@ -557,6 +631,19 @@ from Electron and otherwise runs the real extractor code. `OCR_PROGRESS=1`
 prints the OCR stage reporting that the plugin puts in its notice;
 `SKIP_HIDDEN_SHEETS=1` is the harness's stand-in for turning **Convert hidden
 sheets** off.
+
+To convert as a document type, set `TYPE` to its id (`invoice`,
+`statement`). `TEMPLATE` points at a template note to use, `LABELS` takes
+extra labels as JSON by field key, and `DATE_ORDER` is `dmy` (the default)
+or `mdy`:
+
+```sh
+TYPE=invoice LABELS='{"total":["total to remit"]}' OUT_DIR=/tmp/out node tools/convert.mjs bill.pdf
+```
+
+The source properties are fixed (`converted: 2026-01-01 00:00`) so runs can
+be compared byte for byte. How document types work, and what's still open,
+is in [`docs/plans/types-and-templates.md`](docs/plans/types-and-templates.md).
 
 Obsidian's `DOMParser` handles XML and HTML; Node has neither, and no one
 package does both well. The harness uses `@xmldom/xmldom` for OOXML,
