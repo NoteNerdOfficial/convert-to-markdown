@@ -4,12 +4,14 @@ import { attachmentFolderFor } from "./attachments";
 import { ExtractResult, extractorFor, isImage, isSupported, SUPPORTED_EXTENSIONS } from "./extractors";
 import { yamlValue } from "./markdown";
 import { CDN_OCR, CORE_FILE_PREFERENCE, LANGUAGE_FILE_NAMES, OcrProvider } from "./ocr";
+import { fetchLatestPluginVersion, PluginVersionStatus, versionStatus } from "./pluginVersion";
 import { DEFAULT_SETTINGS, ConvertToMarkdownSettings, ConvertToMarkdownSettingTab } from "./settings";
 import { composeTypedNote, conversionNotes, DocumentType, DOCUMENT_TYPES, typesFor } from "./types";
 import { DateOrder } from "./types/values";
 
 export default class ConvertToMarkdownPlugin extends Plugin {
   settings: ConvertToMarkdownSettings = { ...DEFAULT_SETTINGS };
+  private latestPluginVersion: string | null = null;
 
   async onload(): Promise<void> {
     await this.loadSettings();
@@ -62,6 +64,21 @@ export default class ConvertToMarkdownPlugin extends Plugin {
         }
       })
     );
+
+    // Once at startup, then twice a day: one tiny request to GitHub's releases API.
+    this.app.workspace.onLayoutReady(() => void this.checkPluginVersion());
+    this.registerInterval(window.setInterval(() => void this.checkPluginVersion(), 12 * 60 * 60 * 1000));
+  }
+
+  pluginVersionStatus(): PluginVersionStatus {
+    return versionStatus(this.manifest.version, this.latestPluginVersion);
+  }
+
+  /** Refreshes the cached latest release. A failed check keeps the last known result rather than clearing it. */
+  async checkPluginVersion(): Promise<PluginVersionStatus> {
+    const latest = await fetchLatestPluginVersion();
+    if (latest) this.latestPluginVersion = latest;
+    return this.pluginVersionStatus();
   }
 
   /**
@@ -263,7 +280,7 @@ export default class ConvertToMarkdownPlugin extends Plugin {
       resolve: async () => {
         const { adapter } = this.app.vault;
         const listing = await adapter.list(folder).catch(() => {
-          throw new Error(`OCR engine folder "${folder}" doesn't exist — check the setting`);
+          throw new Error(`OCR engine folder "${folder}" doesn't exist. Check the setting`);
         });
         const names = new Set(listing.files.map((path) => path.slice(path.lastIndexOf("/") + 1)));
 
@@ -585,7 +602,7 @@ function progressReporter(notice: Notice, fileName: string): OcrProvider["report
 
   return (status, progress) => {
     const percent = Number.isFinite(progress) ? Math.round(progress * 100) : 0;
-    const message = `Converting ${fileName}\n${status} — ${percent}%`;
+    const message = `Converting ${fileName}\n${status} (${percent}%)`;
     if (message === last) return;
     last = message;
     notice.setMessage(message);

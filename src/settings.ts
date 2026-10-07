@@ -1,6 +1,7 @@
-import { AbstractInputSuggest, App, PluginSettingTab, Setting, TFile, normalizePath } from "obsidian";
+import { AbstractInputSuggest, App, Notice, PluginSettingTab, Setting, TFile, normalizePath, setIcon } from "obsidian";
 import { DEFAULT_ATTACHMENT_FOLDER } from "./attachments";
 import type ConvertToMarkdownPlugin from "./main";
+import { COMMUNITY_PLUGIN_URL, PluginVersionStatus } from "./pluginVersion";
 import { DOCUMENT_TYPES, DocumentType } from "./types";
 
 export interface ConvertToMarkdownSettings {
@@ -55,6 +56,69 @@ export const DEFAULT_SETTINGS: ConvertToMarkdownSettings = {
   openAfterConvert: true,
 };
 
+/** `icon` is the plugin's own ribbon icon, so the tile matches what users see once it's installed
+ *  (AI Skills Manager's is a custom icon; Lucide's "shapes" is the one it's drawn from). */
+const RELATED_PLUGINS: { name: string; desc: string; url: string; icon: string }[] = [
+  {
+    name: "AI Skills Manager",
+    desc: "Manages AI skills, agents, commands and rules for Claude, Codex and more. Pairs with converting: turn existing documentation, PDFs or slide decks into Markdown here, then shape the notes into skills or rules there.",
+    url: "https://community.obsidian.md/plugins/ai-skills-manager",
+    icon: "shapes",
+  },
+  {
+    name: "Terminus",
+    desc: "A real terminal inside Obsidian with Claude Code support, including a panel for reviewing and accepting file edits. Handy for pointing an AI tool at converted notes without leaving the vault.",
+    url: "https://community.obsidian.md/plugins/terminus",
+    icon: "square-terminal",
+  },
+  {
+    name: "Working Tabs",
+    desc: "Groups open tabs into named spaces by task instead of folder. Keeps an original file and the notes converted from it together while you check them over.",
+    url: "https://community.obsidian.md/plugins/working-tabs",
+    icon: "layout-panel-left",
+  },
+];
+
+/** Icon tile + "View plugin" button on a related plugin's row. */
+function renderRelatedPlugin(setting: Setting, plugin: (typeof RELATED_PLUGINS)[number]): void {
+  setting.addButton((btn) => btn.setButtonText("View plugin").onClick(() => window.open(plugin.url, "_blank")));
+  setting.settingEl.addClass("convert-to-markdown-related-plugin");
+  const tile = createDiv({ cls: "convert-to-markdown-related-plugin-icon", attr: { "aria-hidden": "true" } });
+  setIcon(tile, plugin.icon);
+  setting.settingEl.prepend(tile);
+}
+
+/** Installed version plus update status, refreshed with a fresh check each time settings opens. */
+function renderVersionSetting(setting: Setting, plugin: ConvertToMarkdownPlugin): void {
+  const apply = (status: PluginVersionStatus) => {
+    setting.setName("Version");
+    setting.controlEl.empty();
+    if (status.state === "outdated") {
+      setting.setDesc(`Installed ${status.installed}. Version ${status.latest} is available with the latest fixes and features.`);
+      setting.addButton((btn) => btn.setButtonText("Update").setCta().onClick(() => window.open(COMMUNITY_PLUGIN_URL)));
+      return;
+    }
+    setting.setDesc(
+      status.state === "current"
+        ? `Installed ${status.installed}. You're on the latest version.`
+        : `Installed ${status.installed}. Couldn't check for updates right now. Keep Convert to Markdown up to date from Community plugins to get the latest fixes.`
+    );
+    if (status.state === "unknown") {
+      setting.addButton((btn) => btn.setButtonText("Open Community plugins").onClick(() => window.open(COMMUNITY_PLUGIN_URL)));
+    }
+    setting.addButton((btn) =>
+      btn.setButtonText("Check for updates").onClick(async () => {
+        btn.setDisabled(true).setButtonText("Checking...");
+        const next = await plugin.checkPluginVersion();
+        if (next.state === "current") new Notice("Convert to Markdown is up to date.");
+        apply(next);
+      })
+    );
+  };
+  apply(plugin.pluginVersionStatus());
+  void plugin.checkPluginVersion().then(apply);
+}
+
 export class ConvertToMarkdownSettingTab extends PluginSettingTab {
   constructor(app: App, private readonly plugin: ConvertToMarkdownPlugin) {
     super(app, plugin);
@@ -73,6 +137,8 @@ export class ConvertToMarkdownSettingTab extends PluginSettingTab {
   display(): void {
     const { containerEl } = this;
     containerEl.empty();
+
+    renderVersionSetting(new Setting(containerEl), this.plugin);
 
     new Setting(containerEl)
       .setName("Save converted notes")
@@ -103,6 +169,58 @@ export class ConvertToMarkdownSettingTab extends PluginSettingTab {
             })
         );
     }
+
+    new Setting(containerEl)
+      .setName("Open after converting")
+      .addToggle((toggle) =>
+        toggle.setValue(this.plugin.settings.openAfterConvert).onChange(async (value) => {
+          this.plugin.settings.openAfterConvert = value;
+          await this.plugin.saveSettings();
+        })
+      );
+
+    new Setting(containerEl).setName("Note contents").setHeading();
+
+    new Setting(containerEl)
+      .setName("Add frontmatter")
+      .setDesc("Record the source file and conversion date at the top of the note.")
+      .addToggle((toggle) =>
+        toggle.setValue(this.plugin.settings.addFrontmatter).onChange(async (value) => {
+          this.plugin.settings.addFrontmatter = value;
+          await this.plugin.saveSettings();
+        })
+      );
+
+    new Setting(containerEl)
+      .setName("Add conversion notes")
+      .setDesc("List what the converter skipped, such as images, hidden sheets and pages with no text layer.")
+      .addToggle((toggle) =>
+        toggle.setValue(this.plugin.settings.addConversionNotes).onChange(async (value) => {
+          this.plugin.settings.addConversionNotes = value;
+          await this.plugin.saveSettings();
+        })
+      );
+
+    new Setting(containerEl)
+      .setName("Embed the original PDF")
+      .setDesc(
+        "Show the PDF itself in the note, alongside the converted text, for documents where the layout " +
+          "matters as much as the words, such as an invoice, a form or a statement. Obsidian displays it as a " +
+          "scrollable viewer. The PDF stays where it is; the note just shows it."
+      )
+      .addDropdown((dropdown) =>
+        dropdown
+          .addOption("off", "Don't embed")
+          .addOption("above", "Above the converted text")
+          .addOption("below", "Below the converted text")
+          .setValue(this.plugin.settings.embedOriginal)
+          .onChange(async (value) => {
+            this.plugin.settings.embedOriginal = value === "above" || value === "below" ? value : "off";
+            await this.plugin.saveSettings();
+          })
+      );
+
+    new Setting(containerEl).setName("Images").setHeading();
 
     new Setting(containerEl)
       .setName("Extract images")
@@ -159,49 +277,13 @@ export class ConvertToMarkdownSettingTab extends PluginSettingTab {
       }
     }
 
-    new Setting(containerEl)
-      .setName("Embed the original PDF")
-      .setDesc(
-        "Show the PDF itself in the note, alongside the converted text, for documents where the layout " +
-          "matters as much as the words — an invoice, a form, a statement. Obsidian displays it as a " +
-          "scrollable viewer. The PDF stays where it is; the note just shows it."
-      )
-      .addDropdown((dropdown) =>
-        dropdown
-          .addOption("off", "Don't embed")
-          .addOption("above", "Above the converted text")
-          .addOption("below", "Below the converted text")
-          .setValue(this.plugin.settings.embedOriginal)
-          .onChange(async (value) => {
-            this.plugin.settings.embedOriginal = value === "above" || value === "below" ? value : "off";
-            await this.plugin.saveSettings();
-          })
-      );
-
-    new Setting(containerEl)
-      .setName("Date order")
-      .setDesc(
-        "For converting as an invoice or receipt: which way round a date written all in numbers is read. " +
-          "06/10/2026 is 6 October in most of the world and June 10 in the US. Dates that could be read " +
-          "either way are listed in the note's ambiguous_fields property so you can check them."
-      )
-      .addDropdown((dropdown) =>
-        dropdown
-          .addOption("system", "From your system's language")
-          .addOption("dmy", "Day first (06/10 is 6 October)")
-          .addOption("mdy", "Month first (06/10 is June 10)")
-          .setValue(this.plugin.settings.dateOrder)
-          .onChange(async (value) => {
-            this.plugin.settings.dateOrder = value === "dmy" || value === "mdy" ? value : "system";
-            await this.plugin.saveSettings();
-          })
-      );
+    new Setting(containerEl).setName("Spreadsheets").setHeading();
 
     new Setting(containerEl)
       .setName("Convert hidden sheets")
       .setDesc(
-        "Spreadsheets only (.xlsx and .ods). A hidden sheet is often the raw data a visible pivot table " +
-          "summarises, so hidden sheets are converted like any other. Turn off to leave them out — they're " +
+        "For .xlsx and .ods files. A hidden sheet is often the raw data a visible pivot table " +
+          "summarises, so hidden sheets are converted like any other. Turn off to leave them out. They're " +
           "then listed by name in the conversion notes, and any sheet a visible formula, pivot table or " +
           "chart reads from is converted regardless."
       )
@@ -212,14 +294,15 @@ export class ConvertToMarkdownSettingTab extends PluginSettingTab {
         })
       );
 
-    new Setting(containerEl)
-      .setName("Reading images (OCR)")
-      .setDesc(
-        "Converting an image file — or a page of a scanned PDF, which is the same thing — runs local OCR. " +
-          "No API key, and the image never leaves your machine. By default the recognition engine and " +
-          "English training data (~9 MB) download on first use and are then cached; every conversion after " +
-          "that works offline."
-      );
+    new Setting(containerEl).setName("Scans and images (OCR)").setHeading();
+    containerEl.createEl("p", {
+      cls: "setting-item-description",
+      text:
+        "Converting an image file, or a page of a scanned PDF (which is the same thing), runs local OCR. " +
+        "No API key, and the image never leaves your machine. By default the recognition engine and " +
+        "English training data (~9 MB) download on first use and are then cached; every conversion after " +
+        "that works offline.",
+    });
 
     new Setting(containerEl)
       .setName("OCR engine folder")
@@ -239,37 +322,51 @@ export class ConvertToMarkdownSettingTab extends PluginSettingTab {
           })
       );
 
-    new Setting(containerEl)
-      .setName("Add frontmatter")
-      .setDesc("Record the source file and conversion date at the top of the note.")
-      .addToggle((toggle) =>
-        toggle.setValue(this.plugin.settings.addFrontmatter).onChange(async (value) => {
-          this.plugin.settings.addFrontmatter = value;
-          await this.plugin.saveSettings();
-        })
-      );
+    new Setting(containerEl).setName("Invoices and statements").setHeading();
 
     new Setting(containerEl)
-      .setName("Add conversion notes")
-      .setDesc("List what the converter skipped — images, hidden sheets, pages with no text layer.")
-      .addToggle((toggle) =>
-        toggle.setValue(this.plugin.settings.addConversionNotes).onChange(async (value) => {
-          this.plugin.settings.addConversionNotes = value;
-          await this.plugin.saveSettings();
-        })
+      .setName("Date order")
+      .setDesc(
+        "Which way round a date written all in numbers is read on an invoice, receipt or statement. " +
+          "06/10/2026 is 6 October in most of the world and June 10 in the US. Dates that could be read " +
+          "either way are listed in the note's ambiguous_fields property so you can check them."
+      )
+      .addDropdown((dropdown) =>
+        dropdown
+          .addOption("system", "From your system's language")
+          .addOption("dmy", "Day first (06/10 is 6 October)")
+          .addOption("mdy", "Month first (06/10 is June 10)")
+          .setValue(this.plugin.settings.dateOrder)
+          .onChange(async (value) => {
+            this.plugin.settings.dateOrder = value === "dmy" || value === "mdy" ? value : "system";
+            await this.plugin.saveSettings();
+          })
       );
 
-    new Setting(containerEl)
-      .setName("Open after converting")
-      .addToggle((toggle) =>
-        toggle.setValue(this.plugin.settings.openAfterConvert).onChange(async (value) => {
-          this.plugin.settings.openAfterConvert = value;
-          await this.plugin.saveSettings();
-        })
-      );
-
-    // Last, under headings of their own: a heading groups everything after it.
+    // A heading groups everything after it, so each type's own settings sit under one of their own.
     for (const type of DOCUMENT_TYPES) this.displayDocumentType(containerEl, type);
+
+    new Setting(containerEl).setName("Support").setHeading();
+    new Setting(containerEl)
+      .setName("Report a bug or request a feature")
+      .setDesc(
+        "Opens a new issue on the Convert to Markdown GitHub repo. For a file that converts badly, say what " +
+          "kind of file it is and what went wrong, and attach it if it's nothing private."
+      )
+      .addButton((btn) =>
+        btn.setButtonText("Open GitHub issues").onClick(() => {
+          window.open("https://github.com/NoteNerdOfficial/convert-to-markdown/issues/new", "_blank");
+        })
+      );
+
+    new Setting(containerEl).setName("Related plugins").setHeading();
+    containerEl.createEl("p", {
+      text: "Other community plugins that pair well with Convert to Markdown.",
+      cls: "setting-item-description",
+    });
+    for (const plugin of RELATED_PLUGINS) {
+      renderRelatedPlugin(new Setting(containerEl).setName(plugin.name).setDesc(plugin.desc), plugin);
+    }
   }
 
   /**
