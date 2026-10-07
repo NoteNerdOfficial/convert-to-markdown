@@ -1,11 +1,12 @@
 import { INVOICE } from "./invoice";
+import { STATEMENT } from "./statement";
 import { DocumentType } from "./types";
 
 export type { DocumentType, TypedResult } from "./types";
 export { composeTypedNote, conversionNotes } from "./compose";
 
 /** Every document type, in menu order. */
-export const DOCUMENT_TYPES: DocumentType[] = [INVOICE];
+export const DOCUMENT_TYPES: DocumentType[] = [INVOICE, STATEMENT];
 
 /**
  * Formats a type can be read from: the ones that keep where their text sits.

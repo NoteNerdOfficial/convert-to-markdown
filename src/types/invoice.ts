@@ -1,10 +1,11 @@
 import { LayoutPage } from "../layout/page";
-import { DetectedTable, runsOf } from "../layout/tables";
+import { DetectedTable } from "../layout/tables";
 import { escapeInline, squashSpaces, table } from "../markdown";
 import { FieldSpec, findFields, FoundField, normalizeLabel } from "./fields";
 import { DEFAULT_INVOICE_TEMPLATE } from "../template";
 import { DocumentType, TypedResult } from "./types";
-import { DateOrder, parseDate, parseMoney } from "./values";
+import { firstDate, format, moneyOf, prominentLine, round, TOLERANCE } from "./shared";
+import { DateOrder, parseMoney } from "./values";
 
 const FIELDS: FieldSpec[] = [
   {
@@ -127,9 +128,6 @@ const QUANTITY_HEADER = /\b(qty|quantity|quantité|hours|units)\b/i;
  */
 const DOCUMENT_WORDS = /\b(invoice|receipt|facture|statement|bill|paid|payé|page|tax|copy|original|quote|estimate)\b/i;
 
-/** Amounts within a cent are equal: a document rounds each line, not the sum. */
-const TOLERANCE = 0.011;
-
 export const INVOICE: DocumentType = {
   id: "invoice",
   name: "invoice / receipt",
@@ -144,7 +142,7 @@ export const INVOICE: DocumentType = {
     const warnings: string[] = [];
 
     if (!found.has("vendor")) {
-      const vendor = guessVendor(pages);
+      const vendor = prominentLine(pages, DOCUMENT_WORDS);
       if (vendor) {
         found.set("vendor", vendor);
         guessed.push("vendor");
@@ -186,45 +184,6 @@ export const INVOICE: DocumentType = {
     };
   },
 };
-
-/**
- * The vendor when no label names it: the most prominent line near the top
- * of the first page — the largest type, or the first line when it's all one
- * size, as on a till receipt — passing over the document's own title.
- */
-function guessVendor(pages: LayoutPage[]): FoundField | null {
-  const page = pages.find((candidate) => candidate.rows.length > 0);
-  if (!page) return null;
-  const top = page.rows[0].y;
-  const bottom = page.rows[page.rows.length - 1].y;
-  // Table rows are what was bought, never who sold it, whatever size
-  // they're set in.
-  const inTables = new Set(page.tables.flatMap((found) => page.rows.slice(found.first, found.last + 1)));
-  const runs = page.rows
-    .filter((row) => row.y <= top + (bottom - top) * 0.35 && !inTables.has(row))
-    .flatMap((row) => runsOf(row, 1).map((run) => ({ run, y: row.y })))
-    .filter(({ run }) => /\p{L}{2}/u.test(run.text) && !DOCUMENT_WORDS.test(run.text) && !run.text.includes(":"));
-  if (runs.length === 0) return null;
-  const largest = Math.max(...runs.map(({ run }) => run.size));
-  const chosen = runs.find(({ run }) => run.size >= largest * 0.95) ?? runs[0];
-  return { value: { kind: "text", text: chosen.run.text }, label: "", ocr: page.source === "ocr", page: page.page, y: chosen.y };
-}
-
-/** The first date near the top of the first page, for a receipt that prints one with no label. */
-function firstDate(pages: LayoutPage[], order: DateOrder): FoundField | null {
-  const page = pages.find((candidate) => candidate.rows.length > 0);
-  if (!page) return null;
-  const top = page.rows[0].y;
-  const bottom = page.rows[page.rows.length - 1].y;
-  for (const row of page.rows) {
-    if (row.y > top + (bottom - top) * 0.4) break;
-    for (const run of runsOf(row, 1)) {
-      const date = parseDate(run.text, order);
-      if (date) return { value: { kind: "date", ...date }, label: "", ocr: page.source === "ocr", page: page.page, y: row.y };
-    }
-  }
-  return null;
-}
 
 interface LineItems {
   markdown: string[];
@@ -317,17 +276,4 @@ function checkSum(found: Map<string, FoundField>): string | null {
     ...(discount ? [`less discount ${format(discount)}`] : []),
   ];
   return `${parts.join(", ")} come to ${format(expected)}, but the total is ${format(total)} — check the figures against the original.`;
-}
-
-function moneyOf(found: Map<string, FoundField>, key: string): number | null {
-  const value = found.get(key)?.value;
-  return value?.kind === "money" ? value.amount : null;
-}
-
-function round(value: number): number {
-  return Math.round(value * 100) / 100;
-}
-
-function format(value: number): string {
-  return value.toFixed(2);
 }

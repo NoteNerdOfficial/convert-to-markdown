@@ -23,7 +23,7 @@ import { DateOrder, parseDate, parseMoney } from "./values";
  * direct layout, then position.
  */
 
-export type FieldKind = "text" | "id" | "money" | "date" | "block";
+export type FieldKind = "text" | "id" | "account" | "money" | "date" | "block";
 
 export interface FieldSpec {
   key: string;
@@ -163,19 +163,27 @@ interface LabelMatch {
 }
 
 /**
- * The ways a run of text can start with one of a field's labels: everything
- * before a colon, or its first few words with a value after them.
+ * The places a field's label turns up in a run of text: before any of its
+ * colons — as the last few words before it, since a line can carry several
+ * label-and-value pairs ("Account ending 4821 · Statement period: …") — or,
+ * with no colon, as the run's first few words with the value after them.
  */
 function labelMatches(text: string, labels: Map<string, string>): LabelMatch[] {
   const matches: LabelMatch[] = [];
-  const colon = text.search(/:(\s|$)/);
-  if (colon > 0) {
-    const label = text.slice(0, colon);
-    const matched = alternatives(label).find((alt) => labels.has(alt));
-    if (matched && label.split(/\s+/).length <= MAX_LABEL_WORDS) {
-      return [{ label: label.trim(), words: matched.split(" ").length, rest: text.slice(colon + 1).trim() }];
+  let from = 0;
+  for (const colon of text.matchAll(/:(?=\s|$)/g)) {
+    const before = text.slice(from, colon.index).trim().split(/\s+/);
+    from = (colon.index ?? 0) + 1;
+    for (let count = Math.min(before.length, MAX_LABEL_WORDS); count >= 1; count--) {
+      const label = before.slice(-count).join(" ");
+      const matched = alternatives(label).find((alt) => labels.has(alt));
+      if (!matched) continue;
+      matches.push({ label, words: matched.split(" ").length, rest: text.slice(from).trim() });
+      break;
     }
   }
+  if (matches.length > 0) return matches;
+
   const words = text.split(/\s+/);
   for (let count = Math.min(words.length, MAX_LABEL_WORDS); count >= 1; count--) {
     const label = words.slice(0, count).join(" ");
@@ -279,6 +287,10 @@ function valueOf(spec: FieldSpec, raw: string, order: DateOrder): FieldValue | n
       const date = parseDate(text, order);
       return date ? { kind: "date", iso: date.iso, ambiguous: date.ambiguous } : null;
     }
+    case "account":
+      // Account numbers are printed in groups — "4520 1234 5678 9012" — so
+      // the whole value is kept, as long as there are digits enough in it.
+      return text.replace(/\D/g, "").length >= 4 ? { kind: "text", text } : null;
     case "id": {
       // An identifier is one token, and has a digit in it somewhere; "Invoice
       // # Date" in a table header isn't a number.

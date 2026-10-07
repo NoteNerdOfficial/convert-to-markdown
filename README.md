@@ -174,6 +174,39 @@ never closes, gives way to the built-in template, with a note saying so.
 per field — if your landlord's invoices say *Total to remit*, add it to
 Total.
 
+## Bank and card statements
+
+**Convert to Markdown as statement** does the same for a bank or credit card
+statement:
+
+```yaml
+type: statement
+institution: Lakeshore Credit Union
+account_last4: "8812"
+period_start: 2026-10-01
+period_end: 2026-10-31
+opening_balance: 5000
+closing_balance: 1683.43
+currency: "$"
+tags: [finance, statements]
+```
+
+Only the account number's last four digits become a property. Properties are
+what gets synced, searched and listed across a vault, and a full account
+number has no business there; the converted text below them is the statement
+as printed, so the full number is still in the note itself.
+
+A statement that runs over several pages repeats its table header on each,
+and those pages' transactions are read as one table. Every row is checked
+against the running balance, and the opening balance plus the transactions
+against the closing balance. Which way round an amount counts differs — a
+credit is money in on a bank account and a payment on a credit card — so
+both readings are tried and the statement's own balances decide. A row
+whose balance doesn't follow is named by its date and description, and one
+misprinted balance is reported once, not as every row after it.
+
+Both types can be given a template note and extra labels in settings.
+
 ## Compared to markitdown
 
 The Obsidian plugins in this space wrap Microsoft's `markitdown`, which is one
