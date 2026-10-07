@@ -27,6 +27,8 @@ export type FieldKind = "text" | "id" | "money" | "date" | "block";
 
 export interface FieldSpec {
   key: string;
+  /** As shown in settings. */
+  name: string;
   /** Labels as printed, matched case-insensitively and whole. */
   labels: string[];
   kind: FieldKind;

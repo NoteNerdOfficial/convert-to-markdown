@@ -131,6 +131,49 @@ to the subtotal, and the subtotal plus tax and shipping, less any discount, to
 the total. When they don't — a misread digit, or an invoice that's simply
 wrong — the conversion notes say so with both numbers.
 
+### Your own template
+
+Under **Invoice / receipt** in settings, **Template note** picks a note to lay
+the converted notes out by, and **Create from built-in** writes the built-in
+template into your vault to start from. A template is an ordinary note with
+placeholders:
+
+```markdown
+---
+from: {{vendor}}
+amount: {{total}}
+due: {{due_date:DD MMM YYYY}}
+status: unpaid
+---
+# {{vendor}} — {{invoice_number}}
+
+{{original}}
+
+{{content}}
+```
+
+Every field is a placeholder — `{{vendor}}`, `{{invoice_number}}`,
+`{{invoice_date}}`, `{{due_date}}`, `{{po_number}}`, `{{bill_to}}`,
+`{{subtotal}}`, `{{tax}}`, `{{shipping}}`, `{{discount}}`, `{{total}}`,
+`{{currency}}` — along with `{{line_items}}` for the items table alone,
+`{{original}}` for the embedded file, `{{content}}` for the whole conversion,
+and `{{title}}`, `{{date}}` and `{{time}}` as in Obsidian's own templates.
+Values are written into the properties safely, whatever's in them: an
+invoice number like `0042` stays text, and a vendor with a colon in its
+name doesn't break the YAML. A field that wasn't found leaves its property
+empty rather than missing, so Bases still sees it.
+
+The source and coverage properties (`source`, `converted`, `missing_fields`
+and the rest) are always added, in the template's place for them if it has
+one. Templater code is left untouched for you to run afterwards. A
+placeholder with a typo stays as typed and is named in the conversion
+notes, and a template note that's been deleted, or whose properties block
+never closes, gives way to the built-in template, with a note saying so.
+
+**Extra labels to read fields by**, below the template, takes your own labels
+per field — if your landlord's invoices say *Total to remit*, add it to
+Total.
+
 ## Compared to markitdown
 
 The Obsidian plugins in this space wrap Microsoft's `markitdown`, which is one

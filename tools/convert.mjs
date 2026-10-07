@@ -4,6 +4,7 @@
  *
  * Usage: node tools/convert.mjs <file> [...]
  *        TYPE=invoice node tools/convert.mjs <file> [...]   (as a document type)
+ *        with TEMPLATE=<note.md>, LABELS='{"total":["to remit"]}', DATE_ORDER=mdy
  *
  * The extractors expect the DOM globals Obsidian gets from Electron; this
  * shims the two they actually use and otherwise runs the real code.
@@ -134,7 +135,7 @@ for (const file of files) {
  * runs can be compared. Dates are left as ISO: there's no moment.js here.
  */
 function typedNote(type, result, name, extension) {
-  const typed = type.read(result.layout ?? [], process.env.DATE_ORDER ?? "dmy");
+  const typed = type.read(result.layout ?? [], process.env.DATE_ORDER ?? "dmy", JSON.parse(process.env.LABELS ?? "{}"));
   return composeTypedNote({
     type,
     typed,

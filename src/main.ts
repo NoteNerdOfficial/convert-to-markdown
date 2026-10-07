@@ -101,7 +101,7 @@ export default class ConvertToMarkdownPlugin extends Plugin {
         { includeHiddenSheets: this.settings.includeHiddenSheets }
       );
       if (imageMove) await imageMove.apply(result);
-      await this.app.vault.modify(note, type ? this.composeTyped(file, result, type) : this.composeNote(file, result));
+      await this.app.vault.modify(note, type ? await this.composeTyped(file, result, type) : this.composeNote(file, result));
       notice.hide();
       new Notice(`Converted ${file.name} → ${note.basename}`);
 
@@ -151,16 +151,17 @@ export default class ConvertToMarkdownPlugin extends Plugin {
   }
 
   /** A note shaped by a document type, through its template. */
-  private composeTyped(source: TFile, result: ExtractResult, type: DocumentType): string {
-    const typed = type.read(result.layout ?? [], this.dateOrder());
+  private async composeTyped(source: TFile, result: ExtractResult, type: DocumentType): Promise<string> {
+    const settings = this.settings.documentTypes[type.id];
+    const typed = type.read(result.layout ?? [], this.dateOrder(), extraLabels(settings?.labels ?? {}));
+    const { template, problem } = await this.templateFor(type);
     const now = window.moment();
     return composeTypedNote({
       type,
       typed,
       result,
-      // Template notes are a setting still to come; until then every type
-      // uses its built-in template.
-      template: null,
+      template,
+      templateProblem: problem,
       coverage: this.settings.addFrontmatter ? this.sourceProperties(source) : [],
       // The template places the original itself, so a PDF is embedded
       // whatever the embed setting says; an image already carries its own.
@@ -174,6 +175,24 @@ export default class ConvertToMarkdownPlugin extends Plugin {
         formatNow: (format) => now.format(format),
       },
     });
+  }
+
+  /**
+   * The text of the type's template note, or null for the built-in
+   * template. A template note that's been moved or deleted doesn't stop the
+   * conversion: the built-in one is used, and the note says why.
+   */
+  private async templateFor(type: DocumentType): Promise<{ template: string | null; problem?: string }> {
+    const path = this.settings.documentTypes[type.id]?.template ?? "";
+    if (path === "") return { template: null };
+    const file = this.app.vault.getFileByPath(normalizePath(path));
+    if (!file) {
+      return {
+        template: null,
+        problem: `The template note "${path}" wasn't found, so the built-in template was used. Choose another in settings.`,
+      };
+    }
+    return { template: await this.app.vault.cachedRead(file) };
   }
 
   /** `source`, `source_format` and `converted`, as frontmatter keys and YAML values. */
@@ -571,6 +590,16 @@ function progressReporter(notice: Notice, fileName: string): OcrProvider["report
     last = message;
     notice.setMessage(message);
   };
+}
+
+/** Labels typed in settings, by field key: comma- or line-separated, blanks dropped. */
+function extraLabels(typed: Record<string, string>): Record<string, string[]> {
+  const out: Record<string, string[]> = {};
+  for (const [key, text] of Object.entries(typed)) {
+    const labels = text.split(/[,\n]/).map((label) => label.trim()).filter((label) => label !== "");
+    if (labels.length > 0) out[key] = labels;
+  }
+  return out;
 }
 
 class FilePickerModal extends FuzzySuggestModal<TFile> {

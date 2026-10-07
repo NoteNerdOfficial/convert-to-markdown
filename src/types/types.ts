@@ -1,4 +1,5 @@
 import { LayoutPage } from "../layout/page";
+import { FieldSpec } from "./fields";
 import { DateOrder } from "./values";
 
 /**
@@ -12,8 +13,13 @@ export interface DocumentType {
   name: string;
   /** The template used when the user hasn't chosen a template note. */
   defaultTemplate: string;
-  /** Reads the type's fields from the document's pages. */
-  read(pages: LayoutPage[], order: DateOrder): TypedResult;
+  /** The fields it reads, for settings to list. */
+  fields: FieldSpec[];
+  /**
+   * Reads the type's fields from the document's pages. `extraLabels` are
+   * the user's own, by field key, counted like the built-in ones.
+   */
+  read(pages: LayoutPage[], order: DateOrder, extraLabels?: Record<string, string[]>): TypedResult;
 }
 
 export interface TypedResult {

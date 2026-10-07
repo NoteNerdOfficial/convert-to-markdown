@@ -9,6 +9,7 @@ import { DateOrder, parseDate, parseMoney } from "./values";
 const FIELDS: FieldSpec[] = [
   {
     key: "vendor",
+    name: "Vendor",
     labels: ["sold by", "vendor", "seller", "supplier", "merchant", "billed by", "issued by", "from"],
     kind: "text",
     core: true,
@@ -16,6 +17,7 @@ const FIELDS: FieldSpec[] = [
   },
   {
     key: "invoice_number",
+    name: "Invoice number",
     labels: [
       "invoice #", "invoice no", "invoice number", "invoice id", "invoice", "inv #", "inv no",
       "receipt #", "receipt no", "receipt number", "bill #", "bill no", "bill number", "document no", "document number",
@@ -26,6 +28,7 @@ const FIELDS: FieldSpec[] = [
   },
   {
     key: "invoice_date",
+    name: "Invoice date",
     labels: ["invoice date", "date of issue", "issue date", "issued", "date issued", "billing date", "bill date", "receipt date", "date"],
     kind: "date",
     core: true,
@@ -33,6 +36,7 @@ const FIELDS: FieldSpec[] = [
   },
   {
     key: "due_date",
+    name: "Due date",
     labels: ["due date", "date due", "payment due", "payment due date", "due", "due by", "pay by"],
     kind: "date",
     core: true,
@@ -40,6 +44,7 @@ const FIELDS: FieldSpec[] = [
   },
   {
     key: "po_number",
+    name: "PO number",
     labels: ["po", "po #", "po no", "po number", "p o", "purchase order", "purchase order #", "purchase order no", "purchase order number"],
     kind: "id",
     core: false,
@@ -47,6 +52,7 @@ const FIELDS: FieldSpec[] = [
   },
   {
     key: "bill_to",
+    name: "Bill to",
     labels: ["bill to", "billed to", "billing address", "invoice to", "sold to", "customer"],
     kind: "block",
     core: false,
@@ -54,6 +60,7 @@ const FIELDS: FieldSpec[] = [
   },
   {
     key: "subtotal",
+    name: "Subtotal",
     labels: ["subtotal", "sub total", "sub-total", "invoice subtotal", "net", "net amount", "net total", "amount before tax", "total before tax"],
     kind: "money",
     core: true,
@@ -61,6 +68,7 @@ const FIELDS: FieldSpec[] = [
   },
   {
     key: "tax",
+    name: "Tax",
     labels: [
       "tax", "taxes", "sales tax", "total tax", "tax total", "tax amount", "vat", "gst", "hst", "pst", "qst",
       "gst/hst", "tva", "tps", "tvq", "tvh",
@@ -72,6 +80,7 @@ const FIELDS: FieldSpec[] = [
   },
   {
     key: "shipping",
+    name: "Shipping",
     labels: ["shipping", "shipping & handling", "shipping and handling", "delivery", "freight", "postage"],
     kind: "money",
     core: false,
@@ -79,6 +88,7 @@ const FIELDS: FieldSpec[] = [
   },
   {
     key: "discount",
+    name: "Discount",
     labels: ["discount", "discounts", "promotion", "coupon"],
     kind: "money",
     core: false,
@@ -86,6 +96,7 @@ const FIELDS: FieldSpec[] = [
   },
   {
     key: "total",
+    name: "Total",
     labels: [
       "total", "grand total", "amount due", "balance due", "total due", "total payable", "amount payable",
       "total amount", "invoice total", "total to pay", "amount to pay", "balance",
@@ -97,11 +108,13 @@ const FIELDS: FieldSpec[] = [
 ];
 
 /** Labels of the lines that close a list of items: from the first of these on, it's totals and payment. */
-const CLOSING = new Set(
-  FIELDS.filter((field) => ["subtotal", "tax", "total", "discount"].includes(field.key)).flatMap((field) =>
-    field.labels.map(normalizeLabel)
-  )
-);
+function closingLabels(fields: FieldSpec[]): Set<string> {
+  return new Set(
+    fields
+      .filter((field) => ["subtotal", "tax", "total", "discount"].includes(field.key))
+      .flatMap((field) => field.labels.map(normalizeLabel))
+  );
+}
 
 /** Header words that say a table lists what was bought. */
 const ITEM_HEADER = /\b(description|item|items|product|service|details|article|qty|quantity|unit|price|rate|hours)\b/i;
@@ -121,8 +134,12 @@ export const INVOICE: DocumentType = {
   id: "invoice",
   name: "invoice / receipt",
   defaultTemplate: DEFAULT_INVOICE_TEMPLATE,
-  read(pages: LayoutPage[], order: DateOrder): TypedResult {
-    const found = findFields(pages, FIELDS, order);
+  fields: FIELDS,
+  read(pages: LayoutPage[], order: DateOrder, extraLabels: Record<string, string[]> = {}): TypedResult {
+    // A user's own labels count exactly like the built-in ones.
+    const fields = FIELDS.map((field) => ({ ...field, labels: [...field.labels, ...(extraLabels[field.key] ?? [])] }));
+    const closing = closingLabels(fields);
+    const found = findFields(pages, fields, order);
     const guessed: string[] = [];
     const warnings: string[] = [];
 
@@ -141,25 +158,25 @@ export const INVOICE: DocumentType = {
       }
     }
 
-    const items = lineItems(pages);
+    const items = lineItems(pages, closing);
     for (const problem of [items ? checkItems(items, found) : null, checkSum(found)]) {
       if (problem) warnings.push(problem);
     }
 
-    const fields: Record<string, string | number | null> = {};
-    for (const spec of FIELDS) {
+    const values: Record<string, string | number | null> = {};
+    for (const spec of fields) {
       const value = found.get(spec.key)?.value;
-      fields[spec.key] = !value ? null : value.kind === "money" ? value.amount : value.kind === "date" ? value.iso : value.text;
+      values[spec.key] = !value ? null : value.kind === "money" ? value.amount : value.kind === "date" ? value.iso : value.text;
     }
     const money = ["total", "subtotal", "tax"].map((key) => found.get(key)?.value).find((value) => value?.kind === "money" && value.currency);
-    fields.currency = money?.kind === "money" ? money.currency : null;
+    values.currency = money?.kind === "money" ? money.currency : null;
 
-    const missing = FIELDS.filter((spec) => spec.core && !found.has(spec.key)).map((spec) => spec.key);
-    if (fields.currency === null && found.has("total")) missing.push("currency");
+    const missing = fields.filter((spec) => spec.core && !found.has(spec.key)).map((spec) => spec.key);
+    if (values.currency === null && found.has("total")) missing.push("currency");
     if (!items) missing.push("line_items");
 
     return {
-      fields,
+      fields: values,
       blocks: { line_items: items ? items.markdown.join("\n") : "" },
       missing,
       ocr: [...found].filter(([, field]) => field.ocr).map(([key]) => key),
@@ -224,21 +241,21 @@ interface LineItems {
  * the first subtotal or total on are left out of the sum: they're the
  * totals, and on a receipt the payment.
  */
-function lineItems(pages: LayoutPage[]): LineItems | null {
+function lineItems(pages: LayoutPage[], closing: Set<string>): LineItems | null {
   const tables = pages.flatMap((page) => page.tables);
   const score = (found: DetectedTable) => found.rows[0].filter((cell) => ITEM_HEADER.test(cell)).length;
   const headedTables = tables.filter((found) => score(found) > 0);
   const chosen =
     headedTables.sort((a, b) => score(b) - score(a) || b.rows.length - a.rows.length)[0] ??
     tables
-      .filter((found) => found.rows.filter((row) => isClosing(row[0])).length < found.rows.length / 2)
+      .filter((found) => found.rows.filter((row) => isClosing(row[0], closing)).length < found.rows.length / 2)
       .sort((a, b) => b.rows.length - a.rows.length)[0];
   if (!chosen) return null;
   const headed = score(chosen) > 0;
 
   const body = headed ? chosen.rows.slice(1) : chosen.rows;
-  const closing = body.findIndex((row) => isClosing(row[0]));
-  const items = closing === -1 ? body : body.slice(0, closing);
+  const end = body.findIndex((row) => isClosing(row[0], closing));
+  const items = end === -1 ? body : body.slice(0, end);
 
   // The column the items add up in: under a header, the one headed like
   // an amount and holding numbers — never a guess, since a quantity column
@@ -264,8 +281,8 @@ function lineItems(pages: LayoutPage[]): LineItems | null {
   };
 }
 
-function isClosing(cell: string): boolean {
-  return CLOSING.has(normalizeLabel(cell)) || cell.split(/\s+\/\s+/).some((half) => CLOSING.has(normalizeLabel(half)));
+function isClosing(cell: string, closing: Set<string>): boolean {
+  return closing.has(normalizeLabel(cell)) || cell.split(/\s+\/\s+/).some((half) => closing.has(normalizeLabel(half)));
 }
 
 /** The line items should add up to the subtotal — or the total, when there's no subtotal and no tax. */

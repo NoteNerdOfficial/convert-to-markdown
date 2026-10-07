@@ -13,6 +13,8 @@ export interface TypedNoteInput {
   result: ExtractResult;
   /** The template note's text, or null for the type's built-in one. */
   template: string | null;
+  /** Why the chosen template note couldn't be read, when it couldn't — the built-in one is used. */
+  templateProblem?: string;
   /** `source`, `source_format` and `converted`, as YAML, or empty when frontmatter is off. */
   coverage: [string, string][];
   /** An embed of the source file, for `{{original}}`. */
@@ -50,7 +52,7 @@ export function composeTypedNote(input: TypedNoteInput): string {
       now: input.now,
     });
 
-  const notes: string[] = [];
+  const notes: string[] = input.templateProblem ? [input.templateProblem] : [];
   let output = render(input.template ?? type.defaultTemplate);
   if (output.fatal) {
     notes.push("The template note's frontmatter never closes, so the built-in template was used instead.");

@@ -1,6 +1,7 @@
-import { App, PluginSettingTab, Setting, normalizePath } from "obsidian";
+import { AbstractInputSuggest, App, PluginSettingTab, Setting, TFile, normalizePath } from "obsidian";
 import { DEFAULT_ATTACHMENT_FOLDER } from "./attachments";
 import type ConvertToMarkdownPlugin from "./main";
+import { DOCUMENT_TYPES, DocumentType } from "./types";
 
 export interface ConvertToMarkdownSettings {
   /** Where the converted note is written. */
@@ -19,6 +20,8 @@ export interface ConvertToMarkdownSettings {
   includeHiddenSheets: boolean;
   /** Which way round an all-number date is read when converting as a document type. */
   dateOrder: "system" | "dmy" | "mdy";
+  /** Per document type, by id: the user's template note and extra labels. */
+  documentTypes: Record<string, DocumentTypeSettings>;
   /** Embed the original PDF in the note, above or below the converted text. */
   embedOriginal: "off" | "above" | "below";
   /** Record the source file and conversion date in the note's frontmatter. */
@@ -27,6 +30,13 @@ export interface ConvertToMarkdownSettings {
   addConversionNotes: boolean;
   /** Open the note once it's written. */
   openAfterConvert: boolean;
+}
+
+export interface DocumentTypeSettings {
+  /** Vault path of the template note, or "" for the built-in template. */
+  template: string;
+  /** Extra labels per field key, comma-separated as typed. */
+  labels: Record<string, string>;
 }
 
 export const DEFAULT_SETTINGS: ConvertToMarkdownSettings = {
@@ -39,6 +49,7 @@ export const DEFAULT_SETTINGS: ConvertToMarkdownSettings = {
   includeHiddenSheets: true,
   embedOriginal: "off",
   dateOrder: "system",
+  documentTypes: {},
   addFrontmatter: true,
   addConversionNotes: true,
   openAfterConvert: true,
@@ -256,5 +267,106 @@ export class ConvertToMarkdownSettingTab extends PluginSettingTab {
           await this.plugin.saveSettings();
         })
       );
+
+    // Last, under headings of their own: a heading groups everything after it.
+    for (const type of DOCUMENT_TYPES) this.displayDocumentType(containerEl, type);
+  }
+
+  /**
+   * A document type's own settings: the template its notes are laid out by,
+   * and labels to read its fields by besides the built-in ones.
+   */
+  private displayDocumentType(containerEl: HTMLElement, type: DocumentType): void {
+    const settings = this.typeSettings(type);
+    const heading = type.name.charAt(0).toUpperCase() + type.name.slice(1);
+    new Setting(containerEl).setName(heading).setHeading();
+
+    const templateDesc = createFragment((fragment) => {
+      fragment.appendText(
+        "A note to lay out converted notes by, with placeholders like {{vendor}}, {{total}}, {{original}} " +
+          "and {{content}} for the whole conversion. Leave empty for the built-in template. The note's " +
+          "source and coverage properties are always added, whatever the template says."
+      );
+    });
+    new Setting(containerEl)
+      .setName("Template note")
+      .setDesc(templateDesc)
+      .addText((text) => {
+        text.setPlaceholder("(built-in template)").setValue(settings.template);
+        new MarkdownFileSuggest(this.app, text.inputEl).onSelect(async (file) => {
+          text.setValue(file.path);
+          settings.template = file.path;
+          await this.plugin.saveSettings();
+        });
+        text.onChange(async (value) => {
+          settings.template = value.trim() === "" ? "" : normalizePath(value.trim());
+          await this.plugin.saveSettings();
+        });
+      })
+      .addButton((button) =>
+        button
+          .setButtonText("Create from built-in")
+          .setTooltip("Write the built-in template into a new note to start from, and use it")
+          .onClick(async () => {
+            // Named from the id: a type's display name can hold a slash.
+            const name = `${type.id.charAt(0).toUpperCase()}${type.id.slice(1)} template`;
+            const file = await this.app.vault.create(availableName(this.app, name), type.defaultTemplate);
+            settings.template = file.path;
+            await this.plugin.saveSettings();
+            this.display();
+            await this.app.workspace.getLeaf(true).openFile(file);
+          })
+      );
+
+    // The field list is long and rarely needed, so it starts folded.
+    const details = containerEl.createEl("details");
+    details.createEl("summary", { text: "Extra labels to read fields by" });
+    details.createEl("p", {
+      cls: "setting-item-description",
+      text:
+        "If your documents print a field under a label that isn't recognised, add it here, separated by " +
+        "commas. It's matched whole and ignoring case, like the built-in ones.",
+    });
+    for (const field of type.fields) {
+      new Setting(details)
+        .setName(field.name)
+        .setDesc(`Built in: ${field.labels.slice(0, 6).join(", ")}${field.labels.length > 6 ? ", …" : ""}`)
+        .addText((text) =>
+          text.setValue(settings.labels[field.key] ?? "").onChange(async (value) => {
+            settings.labels[field.key] = value;
+            await this.plugin.saveSettings();
+          })
+        );
+    }
+  }
+
+  /** The type's settings, created on first use. */
+  private typeSettings(type: DocumentType): DocumentTypeSettings {
+    const all = this.plugin.settings.documentTypes;
+    all[type.id] ??= { template: "", labels: {} };
+    all[type.id].labels ??= {};
+    return all[type.id];
+  }
+}
+
+/** A vault-root note path that's free: "Invoice template.md", then "Invoice template 1.md". */
+function availableName(app: App, base: string): string {
+  let path = `${base}.md`;
+  for (let index = 1; app.vault.getAbstractFileByPath(path); index++) path = `${base} ${index}.md`;
+  return path;
+}
+
+/** Suggests the vault's Markdown notes as you type a path. */
+class MarkdownFileSuggest extends AbstractInputSuggest<TFile> {
+  protected getSuggestions(query: string): TFile[] {
+    const lower = query.toLowerCase();
+    return this.app.vault
+      .getMarkdownFiles()
+      .filter((file) => file.path.toLowerCase().includes(lower))
+      .slice(0, 50);
+  }
+
+  renderSuggestion(file: TFile, el: HTMLElement): void {
+    el.setText(file.path);
   }
 }

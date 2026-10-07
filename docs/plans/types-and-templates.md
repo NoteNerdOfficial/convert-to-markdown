@@ -273,7 +273,7 @@ strictly better.
 | 3 | **Table detection on OCR** (images + scanned PDF pages) | Done | Words joined into runs, page tilt straightened rather than refused; a second single-block OCR pass when a page hints at a table, since Tesseract's layout analysis cuts columns of figures apart. Tables under 80% confidence flagged; words read in a table's area but missing from it named. Bails out only on warped pages. |
 | 4 | **Fillable form fields** | Done | Field \| Value table, `form_fields_filled` count, empty fields named. |
 | 5 | **Type framework + Invoice/receipt** with built-in template | Done | `src/types/`: label matching (inline, beside — including centred against a wrapped label — and below), money and date parsing, vendor and date fallbacks, line-items and sum checks, the four provenance lists, a menu item and command per type, Date order setting. The default template leaves `{{line_items}}` out, since `{{content}}` already holds the table. Not yet: reading tax out of a tax-summary table (Amazon's "Invoice subtotal" already includes tax, so the sum check would need to know that first). |
-| 6 | **Template notes + extra labels** | Engine done | `src/template.ts` renders templates and holds the default invoice template. Still to do: settings UI, template-note lookup, extra labels. |
+| 6 | **Template notes + extra labels** | Done | Per type in settings: a template note (with a note picker and a "Create from built-in" button) and extra labels per field. A deleted or unclosed template note falls back to the built-in one with a note. User-defined fields and folder → type defaults remain "later". |
 | 7 | **Statement** type | | First reuse of the framework, which tests whether it's general. |
 
 ## Verification
