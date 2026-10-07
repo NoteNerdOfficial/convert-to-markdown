@@ -3,6 +3,7 @@
  * real files without reloading a vault.
  *
  * Usage: node tools/convert.mjs <file> [...]
+ *        TYPE=invoice node tools/convert.mjs <file> [...]   (as a document type)
  *
  * The extractors expect the DOM globals Obsidian gets from Electron; this
  * shims the two they actually use and otherwise runs the real code.
@@ -72,7 +73,7 @@ await esbuild.build({
   logLevel: "warning",
 });
 
-const { extractorFor, createAssetSink, CDN_OCR } = await import(
+const { extractorFor, createAssetSink, CDN_OCR, composeTypedNote, typeById } = await import(
   pathToFileURL(join(process.cwd(), bundlePath)).href
 );
 
@@ -110,7 +111,14 @@ for (const file of files) {
       return `![[${assetName}]]`;
     }), ocr, { includeHiddenSheets: process.env.SKIP_HIDDEN_SHEETS !== "1" });
     const target = join(outDir, `${name}.md`);
-    writeFileSync(target, result.markdown + "\n");
+    const type = process.env.TYPE ? typeById(process.env.TYPE) : undefined;
+    if (process.env.TYPE && !type) throw new Error(`no document type "${process.env.TYPE}"`);
+    writeFileSync(
+      target,
+      type
+        ? typedNote(type, result, basename(file), extension)
+        : [result.original, result.markdown].filter(Boolean).join("\n\n") + "\n"
+    );
     console.error(`OK    ${file} → ${target} (${result.markdown.length} chars)`);
     for (const [key, value] of Object.entries(result.frontmatter ?? {})) {
       console.error(`      ${key}: ${value}`);
@@ -119,6 +127,29 @@ for (const file of files) {
   } catch (error) {
     console.error(`FAIL  ${file}: ${error.message}`);
   }
+}
+
+/**
+ * A typed note as the plugin would write it, with fixed source properties so
+ * runs can be compared. Dates are left as ISO: there's no moment.js here.
+ */
+function typedNote(type, result, name, extension) {
+  const typed = type.read(result.layout ?? [], process.env.DATE_ORDER ?? "dmy");
+  return composeTypedNote({
+    type,
+    typed,
+    result,
+    template: process.env.TEMPLATE ? readFileSync(process.env.TEMPLATE, "utf8") : null,
+    coverage: [
+      ["source", `"[[${name}]]"`],
+      ["source_format", extension],
+      ["converted", "2026-01-01 00:00"],
+    ],
+    original: result.original ?? `![[${name}]]`,
+    addConversionNotes: true,
+    formatDate: (iso) => iso,
+    now: { title: name, date: "2026-01-01", time: "00:00", formatNow: () => "2026-01-01" },
+  });
 }
 
 function patchXmldom() {

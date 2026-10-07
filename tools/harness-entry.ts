@@ -2,3 +2,4 @@
 export { extractorFor } from "../src/extractors";
 export { createAssetSink } from "../src/assets";
 export { CDN_OCR } from "../src/ocr";
+export { composeTypedNote, typeById } from "../src/types";

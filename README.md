@@ -86,6 +86,51 @@ moveable bare-filename link as `source`. It's off by default, and PDF-only:
 Obsidian can't display Office or e-book files inline, so for those the
 `source` link is all an embed would give you anyway.
 
+## Invoices and receipts
+
+Right-click a PDF or an image and choose **Convert to Markdown as invoice /
+receipt** (or run **Convert a file as invoice / receipt**) and the note's
+properties carry what you'd file it by:
+
+```yaml
+type: invoice
+vendor: Northwind Studio
+invoice_number: NW-2026-0042
+invoice_date: 2026-10-06
+due_date: 2026-11-05
+subtotal: 1310
+tax: 170.3
+total: 1469
+currency: CAD
+tags: [finance, invoices]
+```
+
+Amounts are plain numbers and dates are ISO dates, so Bases and Dataview can
+sort, filter and sum them. Below the properties come the original, embedded,
+and the full conversion, tables included.
+
+Fields are found by their labels and where the value sits — `Invoice #: 1042`,
+`Amount due` with the figure tabbed out beside it, an address under `Bill to`.
+Labels printed in two languages (`Invoice date / Date de facturation`) match
+on either, and a more specific label wins over a vaguer one, so *Total
+payable* beats a table's bare *Total*. It works the same on scans and photos,
+read by OCR. It isn't AI and doesn't guess at meaning, so what it couldn't do
+is said in the note rather than papered over:
+
+- `missing_fields` names what an invoice should have and this one didn't
+  show — a receipt with no invoice number, an invoice with no due date.
+- `guessed_fields` names what came from a fallback rather than a label: the
+  vendor taken as the most prominent line at the top, a receipt's date taken
+  as the first date printed.
+- `ocr_fields` names what was read by OCR, and so can be misread.
+- `ambiguous_fields` names all-number dates that read either way round
+  (`06/10/2026`); **Date order** in settings decides which.
+
+The figures are also checked against each other: the line items should add up
+to the subtotal, and the subtotal plus tax and shipping, less any discount, to
+the total. When they don't — a misread digit, or an invoice that's simply
+wrong — the conversion notes say so with both numbers.
+
 ## Compared to markitdown
 
 The Obsidian plugins in this space wrap Microsoft's `markitdown`, which is one

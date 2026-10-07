@@ -17,6 +17,8 @@ export interface ConvertToMarkdownSettings {
   ocrDataFolder: string;
   /** Convert spreadsheet sheets Excel has marked hidden. */
   includeHiddenSheets: boolean;
+  /** Which way round an all-number date is read when converting as a document type. */
+  dateOrder: "system" | "dmy" | "mdy";
   /** Embed the original PDF in the note, above or below the converted text. */
   embedOriginal: "off" | "above" | "below";
   /** Record the source file and conversion date in the note's frontmatter. */
@@ -36,6 +38,7 @@ export const DEFAULT_SETTINGS: ConvertToMarkdownSettings = {
   ocrDataFolder: "",
   includeHiddenSheets: true,
   embedOriginal: "off",
+  dateOrder: "system",
   addFrontmatter: true,
   addConversionNotes: true,
   openAfterConvert: true,
@@ -160,6 +163,25 @@ export class ConvertToMarkdownSettingTab extends PluginSettingTab {
           .setValue(this.plugin.settings.embedOriginal)
           .onChange(async (value) => {
             this.plugin.settings.embedOriginal = value === "above" || value === "below" ? value : "off";
+            await this.plugin.saveSettings();
+          })
+      );
+
+    new Setting(containerEl)
+      .setName("Date order")
+      .setDesc(
+        "For converting as an invoice or receipt: which way round a date written all in numbers is read. " +
+          "06/10/2026 is 6 October in most of the world and June 10 in the US. Dates that could be read " +
+          "either way are listed in the note's ambiguous_fields property so you can check them."
+      )
+      .addDropdown((dropdown) =>
+        dropdown
+          .addOption("system", "From your system's language")
+          .addOption("dmy", "Day first (06/10 is 6 October)")
+          .addOption("mdy", "Month first (06/10 is June 10)")
+          .setValue(this.plugin.settings.dateOrder)
+          .onChange(async (value) => {
+            this.plugin.settings.dateOrder = value === "dmy" || value === "mdy" ? value : "system";
             await this.plugin.saveSettings();
           })
       );

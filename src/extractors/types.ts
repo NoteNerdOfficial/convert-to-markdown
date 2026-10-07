@@ -1,4 +1,5 @@
 import { AssetSink } from "../assets";
+import { LayoutPage } from "../layout/page";
 import { OcrProvider } from "../ocr";
 
 export interface ExtractResult {
@@ -12,6 +13,17 @@ export interface ExtractResult {
    * a reader needs, not a footnote after two thousand lines.
    */
   frontmatter?: Record<string, string>;
+  /**
+   * The pages as positioned text, for formats that have positions at all —
+   * PDFs and images. Document types read their fields from this.
+   */
+  layout?: LayoutPage[];
+  /**
+   * An embed of the source file itself, when the extractor made one: an
+   * image file is moved in with the note's images and shown at its top.
+   * Kept apart from `markdown` so a document type's template can place it.
+   */
+  original?: string;
 }
 
 /** Per-conversion choices that come from the plugin's settings. */

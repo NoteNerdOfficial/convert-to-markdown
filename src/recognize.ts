@@ -1,5 +1,5 @@
 import { createWorker, PSM, type Worker } from "tesseract.js";
-import { findTables, LayoutItem, LayoutRow } from "./layout/tables";
+import { DetectedTable, findTables, LayoutItem, LayoutRow } from "./layout/tables";
 import { escapeInline, squashSpaces, table } from "./markdown";
 import { OcrEngineFiles, OcrProvider } from "./ocr";
 
@@ -37,6 +37,8 @@ export interface Recognition {
    * read for tables missed them. Named so the table can be checked.
    */
   unplaced: string[];
+  /** The page as straightened rows of words, and the tables among them. */
+  layout: { rows: LayoutRow[]; tables: DetectedTable[] };
 }
 
 export type OcrBlock =
@@ -232,7 +234,8 @@ function readBlocks(text: RecognisedBlock[], tables: RecognisedBlock[]): Omit<Re
   const straighten = (x: number, y: number) => ({ x: x + tilt * y, y: y - tilt * x });
 
   const found: { block: OcrBlock; box: Box }[] = [];
-  for (const detected of skipped ? [] : findTables(rows)) {
+  const detectedTables = skipped ? [] : findTables(rows);
+  for (const detected of detectedTables) {
     const words = rows.slice(detected.first, detected.last + 1).flatMap((row) => row.items as OcrWord[]);
     const first = rows[detected.first];
     const last = rows[detected.last];
@@ -296,7 +299,41 @@ function readBlocks(text: RecognisedBlock[], tables: RecognisedBlock[]): Omit<Re
     blocks: out.map((entry) => entry.block),
     discarded,
     unplaced,
+    layout: tables === text ? { rows, tables: detectedTables } : mergedLayout(text, rows, detectedTables, found),
     ...(skipped ? { tablesSkipped: skipped } : {}),
+  };
+}
+
+/**
+ * The page's rows for reading fields from, when a second pass was made for
+ * tables: each table's rows from that pass, everything else from the
+ * ordinary reading. Each reading is better at its own part of the page —
+ * the second pass keeps table rows whole but can split a line of text the
+ * first read cleanly, and a field read off the page should match the note.
+ */
+function mergedLayout(
+  text: RecognisedBlock[],
+  rows: LayoutRow[],
+  tables: DetectedTable[],
+  found: { box: Box }[]
+): { rows: LayoutRow[]; tables: DetectedTable[] } {
+  const ordinary = layoutRows(text);
+  const inTable = (row: LayoutRow) =>
+    found.some(
+      ({ box }) =>
+        row.y >= box.y0 &&
+        row.y <= box.y1 &&
+        row.items.some((item) => item.x < box.x1 && item.x + item.width > box.x0)
+    );
+  const tableRows = tables.flatMap((detected) => rows.slice(detected.first, detected.last + 1));
+  const merged = [...ordinary.rows.filter((row) => !inTable(row)), ...tableRows].sort((a, b) => a.y - b.y);
+  return {
+    rows: merged,
+    tables: tables.map((detected) => ({
+      ...detected,
+      first: merged.indexOf(rows[detected.first]),
+      last: merged.indexOf(rows[detected.last]),
+    })),
   };
 }
 

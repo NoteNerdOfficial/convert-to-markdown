@@ -5,6 +5,8 @@ import { ExtractResult, extractorFor, isImage, isSupported, SUPPORTED_EXTENSIONS
 import { yamlValue } from "./markdown";
 import { CDN_OCR, CORE_FILE_PREFERENCE, LANGUAGE_FILE_NAMES, OcrProvider } from "./ocr";
 import { DEFAULT_SETTINGS, ConvertToMarkdownSettings, ConvertToMarkdownSettingTab } from "./settings";
+import { composeTypedNote, conversionNotes, DocumentType, DOCUMENT_TYPES, typesFor } from "./types";
+import { DateOrder } from "./types/values";
 
 export default class ConvertToMarkdownPlugin extends Plugin {
   settings: ConvertToMarkdownSettings = { ...DEFAULT_SETTINGS };
@@ -26,6 +28,21 @@ export default class ConvertToMarkdownPlugin extends Plugin {
       },
     });
 
+    for (const type of DOCUMENT_TYPES) {
+      this.addCommand({
+        id: `convert-file-as-${type.id}`,
+        name: `Convert a file as ${type.name}`,
+        callback: () => {
+          const files = this.app.vault.getFiles().filter((file) => typesFor(file.extension).includes(type));
+          if (files.length === 0) {
+            new Notice(`No PDFs or images in this vault to convert as ${type.name}.`);
+            return;
+          }
+          new FilePickerModal(this, files, type).open();
+        },
+      });
+    }
+
     this.registerEvent(
       this.app.workspace.on("file-menu", (menu, file: TAbstractFile) => {
         if (!(file instanceof TFile) || !isSupported(file.extension)) return;
@@ -35,11 +52,24 @@ export default class ConvertToMarkdownPlugin extends Plugin {
             .setIcon("file-text")
             .onClick(() => void this.convert(file))
         );
+        for (const type of typesFor(file.extension)) {
+          menu.addItem((item) =>
+            item
+              .setTitle(`Convert to Markdown as ${type.name}`)
+              .setIcon("receipt")
+              .onClick(() => void this.convert(file, type))
+          );
+        }
       })
     );
   }
 
-  async convert(file: TFile): Promise<void> {
+  /**
+   * Converts a file to a note beside it (or where the settings say). With a
+   * document type, the note is that type's: its fields as properties, laid
+   * out by its template.
+   */
+  async convert(file: TFile, type?: DocumentType): Promise<void> {
     const extract = extractorFor(file.extension);
     if (!extract) {
       new Notice(`Can't convert .${file.extension} files.`);
@@ -71,7 +101,7 @@ export default class ConvertToMarkdownPlugin extends Plugin {
         { includeHiddenSheets: this.settings.includeHiddenSheets }
       );
       if (imageMove) await imageMove.apply(result);
-      await this.app.vault.modify(note, this.composeNote(file, result));
+      await this.app.vault.modify(note, type ? this.composeTyped(file, result, type) : this.composeNote(file, result));
       notice.hide();
       new Notice(`Converted ${file.name} → ${note.basename}`);
 
@@ -94,9 +124,7 @@ export default class ConvertToMarkdownPlugin extends Plugin {
       sections.push(
         [
           "---",
-          `source: ${yamlValue(`[[${this.sourceLink(source)}]]`)}`,
-          `source_format: ${source.extension}`,
-          `converted: ${window.moment().format("YYYY-MM-DD HH:mm")}`,
+          ...this.sourceProperties(source).map(([key, value]) => `${key}: ${value}`),
           // How much of the source made it across, when the extractor can say
           // — at the top of the note, where it's read before the content
           // rather than after it.
@@ -106,18 +134,65 @@ export default class ConvertToMarkdownPlugin extends Plugin {
       );
     }
 
+    // An image file's own embed leads its note; a PDF's goes where the
+    // embed setting says.
+    if (result.original) sections.push(result.original);
     const original = this.originalEmbed(source);
     if (original && this.settings.embedOriginal === "above") sections.push(original);
-    sections.push(result.markdown.trim() === "" ? "*(no text content found)*" : result.markdown);
+    if (result.markdown.trim() !== "") sections.push(result.markdown);
+    else if (!result.original) sections.push("*(no text content found)*");
     if (original && this.settings.embedOriginal === "below") sections.push(original);
 
     if (this.settings.addConversionNotes && result.warnings.length > 0) {
-      sections.push(
-        ["> [!info]- Conversion notes", ...result.warnings.map((line) => `> - ${line}`)].join("\n")
-      );
+      sections.push(conversionNotes(result.warnings));
     }
 
     return `${sections.join("\n\n")}\n`;
+  }
+
+  /** A note shaped by a document type, through its template. */
+  private composeTyped(source: TFile, result: ExtractResult, type: DocumentType): string {
+    const typed = type.read(result.layout ?? [], this.dateOrder());
+    const now = window.moment();
+    return composeTypedNote({
+      type,
+      typed,
+      result,
+      // Template notes are a setting still to come; until then every type
+      // uses its built-in template.
+      template: null,
+      coverage: this.settings.addFrontmatter ? this.sourceProperties(source) : [],
+      // The template places the original itself, so a PDF is embedded
+      // whatever the embed setting says; an image already carries its own.
+      original: result.original ?? (source.extension.toLowerCase() === "pdf" ? `![[${this.sourceLink(source)}]]` : ""),
+      addConversionNotes: this.settings.addConversionNotes,
+      formatDate: (iso, format) => window.moment(iso).format(format),
+      now: {
+        title: source.basename,
+        date: now.format("YYYY-MM-DD"),
+        time: now.format("HH:mm"),
+        formatNow: (format) => now.format(format),
+      },
+    });
+  }
+
+  /** `source`, `source_format` and `converted`, as frontmatter keys and YAML values. */
+  private sourceProperties(source: TFile): [string, string][] {
+    return [
+      ["source", yamlValue(`[[${this.sourceLink(source)}]]`)],
+      ["source_format", source.extension],
+      ["converted", window.moment().format("YYYY-MM-DD HH:mm")],
+    ];
+  }
+
+  /**
+   * Which way round an all-number date like 06/10/2026 is read. "From your
+   * system" follows the language Obsidian is running under: month first in
+   * the US, day first nearly everywhere else.
+   */
+  private dateOrder(): DateOrder {
+    if (this.settings.dateOrder !== "system") return this.settings.dateOrder;
+    return /^(en-US|en-PH|es-US)\b/.test(navigator.language) ? "mdy" : "dmy";
   }
 
   /**
@@ -499,9 +574,13 @@ function progressReporter(notice: Notice, fileName: string): OcrProvider["report
 }
 
 class FilePickerModal extends FuzzySuggestModal<TFile> {
-  constructor(private readonly plugin: ConvertToMarkdownPlugin, private readonly files: TFile[]) {
+  constructor(
+    private readonly plugin: ConvertToMarkdownPlugin,
+    private readonly files: TFile[],
+    private readonly type?: DocumentType
+  ) {
     super(plugin.app);
-    this.setPlaceholder("Pick a document to convert to Markdown");
+    this.setPlaceholder(type ? `Pick a document to convert as ${type.name}` : "Pick a document to convert to Markdown");
   }
 
   getItems(): TFile[] {
@@ -513,6 +592,6 @@ class FilePickerModal extends FuzzySuggestModal<TFile> {
   }
 
   onChooseItem(file: TFile): void {
-    void this.plugin.convert(file);
+    void this.plugin.convert(file, this.type);
   }
 }

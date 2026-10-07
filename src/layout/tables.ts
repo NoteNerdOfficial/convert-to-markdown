@@ -200,6 +200,35 @@ interface Segment {
   right: number;
 }
 
+/** A stretch of text on a line, as a reader would take it in one go. */
+export interface Run {
+  text: string;
+  left: number;
+  right: number;
+  size: number;
+}
+
+/**
+ * A row's text as runs: pieces closer than `gap` ems joined. With a gap of
+ * about an em, words and phrases come back whole while things set apart on
+ * the line — a label and the value tabbed out beside it — stay separate.
+ */
+export function runsOf(row: LayoutRow, gap: number): Run[] {
+  const runs: { items: LayoutItem[]; left: number; right: number; size: number }[] = [];
+  for (const segment of segmentsOf(row)) {
+    const size = Math.max(...segment.items.map((item) => item.size));
+    const last = runs[runs.length - 1];
+    if (last && segment.left - last.right <= gap * Math.max(size, last.size)) {
+      last.items.push(...segment.items);
+      last.right = segment.right;
+      last.size = Math.max(last.size, size);
+    } else {
+      runs.push({ items: [...segment.items], left: segment.left, right: segment.right, size });
+    }
+  }
+  return runs.map((run) => ({ text: joinItems(run.items).trim(), left: run.left, right: run.right, size: run.size }));
+}
+
 /** A row's visible items, split wherever a gap is wider than a space. */
 function segmentsOf(row: LayoutRow): Segment[] {
   const segments: Segment[] = [];

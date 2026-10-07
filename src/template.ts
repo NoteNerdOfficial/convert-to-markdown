@@ -54,15 +54,13 @@ vendor: {{vendor}}
 invoice_number: {{invoice_number}}
 invoice_date: {{invoice_date}}
 due_date: {{due_date}}
+subtotal: {{subtotal}}
+tax: {{tax}}
 total: {{total}}
 currency: {{currency}}
 tags: [finance, invoices]
 ---
 {{original}}
-
-## Line items
-
-{{line_items}}
 
 {{content}}
 `;

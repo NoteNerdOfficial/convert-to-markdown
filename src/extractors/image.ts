@@ -67,11 +67,10 @@ export async function extractImage(
   if (!embed) warnings.push("The image itself isn't embedded (image extraction is off).");
 
   return {
-    markdown: joinBlocks([
-      ...(embed ? [embed, ""] : []),
-      ...recognitionMarkdown(recognition),
-    ]),
+    markdown: joinBlocks(recognitionMarkdown(recognition)),
     warnings,
+    ...(embed ? { original: embed } : {}),
+    layout: [{ page: 1, ...recognition.layout, source: "ocr" }],
   };
 }
 

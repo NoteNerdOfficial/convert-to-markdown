@@ -1,7 +1,8 @@
 import * as pdfjsLib from "pdfjs-dist";
 import type { PDFDocumentProxy, PDFPageProxy, TextItem } from "pdfjs-dist/types/src/display/api";
 import { AssetSink } from "../assets";
-import { findTables, joinItems } from "../layout/tables";
+import { LayoutPage } from "../layout/page";
+import { DetectedTable, findTables, joinItems, LayoutRow } from "../layout/tables";
 import { bullet, escapeInline, heading, joinBlocks, squashSpaces, table } from "../markdown";
 import { CDN_OCR, OcrProvider } from "../ocr";
 import { encodePng } from "../png";
@@ -111,7 +112,8 @@ export async function extractPdf(
     // becomes three fragments, each landing at the end of a different column,
     // in the middle of the text.
     const repeated = repeatedEdgeText(pageRows.map((rows) => rows.map(toLine)));
-    const pages = pageRows.map((rows) => buildPage(withoutFurniture(rows, repeated)));
+    const built = pageRows.map((rows) => buildPage(withoutFurniture(rows, repeated)));
+    const pages = built.map((page) => page.lines);
 
     const allLines = pages.flat();
     // With nothing else to show, a note saying the engine didn't load is
@@ -154,6 +156,12 @@ export async function extractPdf(
         ...form.warnings,
       ],
       frontmatter: { ...coverageOf(document.numPages, pages, scanned), ...form.frontmatter },
+      layout: built.map((page, index): LayoutPage => {
+        const recognised = scanned.get(index + 1);
+        return recognised
+          ? { page: index + 1, ...recognised.layout, source: "ocr" }
+          : { page: index + 1, rows: page.rows, tables: page.tables, source: "text" };
+      }),
     };
   } finally {
     await document.destroy();
@@ -328,6 +336,10 @@ async function readScannedPages(
         blocks: recognitions.flatMap((recognition) => recognition.blocks),
         tablesSkipped: recognitions.find((recognition) => recognition.tablesSkipped)?.tablesSkipped,
         unplaced: recognitions.flatMap((recognition) => recognition.unplaced),
+        // Strips are rare and short; their layouts are kept apart by page
+        // position only through the first, which is the one that matters for
+        // fields read off the top of a page.
+        layout: recognitions[0].layout,
         confidence: Math.min(...recognitions.map((recognition) => recognition.confidence)),
         discarded: recognitions.reduce((total, recognition) => total + recognition.discarded, 0),
       });
@@ -679,16 +691,17 @@ function positionItems(items: TextItem[]): PositionedItem[] {
  * interleaves the columns into nonsense. So columns are detected first, and
  * lines are built within each column rather than across the page.
  */
-function buildPage(positioned: PositionedItem[]): Line[] {
-  if (positioned.length === 0) return [];
+function buildPage(positioned: PositionedItem[]): { lines: Line[]; rows: LayoutRow[]; tables: DetectedTable[] } {
+  if (positioned.length === 0) return { lines: [], rows: [], tables: [] };
 
   // Tables come out before columns are looked for. The gaps between a table's
   // columns are exactly what column detection is looking for, and a page
   // that is mostly line items would otherwise be read down each column of
   // the table in turn.
   const rows = groupRows(positioned);
-  const tables = findTables(rows.map((row) => ({ items: row, y: -row[0].y })));
-  if (tables.length === 0) return buildTextLines(positioned, positioned);
+  const layoutRows = rows.map((row) => ({ items: row, y: -row[0].y }));
+  const tables = findTables(layoutRows);
+  if (tables.length === 0) return { lines: buildTextLines(positioned, positioned), rows: layoutRows, tables };
 
   // Columns are still worked out from the whole page, tables included, so
   // the text around a table reads exactly as it did before tables were
@@ -718,7 +731,7 @@ function buildPage(positioned: PositionedItem[]): Line[] {
     );
     lines.splice(next === -1 ? lines.length : next, 0, tableLine);
   }
-  return lines;
+  return { lines, rows: layoutRows, tables };
 }
 
 /**
