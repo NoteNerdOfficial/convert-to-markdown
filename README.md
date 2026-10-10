@@ -1,5 +1,11 @@
 # Convert to Markdown
 
+<p align="center">
+  <a href="https://github.com/NoteNerdOfficial/convert-to-markdown/commits/main"><img src="https://img.shields.io/github/last-commit/NoteNerdOfficial/convert-to-markdown?style=flat-square" alt="last commit"></a>
+  <a href="https://github.com/NoteNerdOfficial/convert-to-markdown/releases/latest"><img src="https://img.shields.io/github/v/release/NoteNerdOfficial/convert-to-markdown?style=flat-square&label=release" alt="release"></a>
+  <a href="https://obsidian.md/plugins?id=convert-to-markdown"><img src="https://img.shields.io/badge/dynamic/json?style=flat-square&logo=obsidian&color=7C3AED&label=downloads&query=%24%5B%22convert-to-markdown%22%5D.downloads&url=https%3A%2F%2Fraw.githubusercontent.com%2Fobsidianmd%2Fobsidian-releases%2Fmaster%2Fcommunity-plugin-stats.json" alt="Obsidian downloads"></a>
+</p>
+
 Converts PDFs, Office and OpenDocument files, ebooks, saved web pages, email,
 notebooks, subtitle tracks, spreadsheets, plain text and images in your vault into Markdown
 notes, images and all.
