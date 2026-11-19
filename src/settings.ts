@@ -264,19 +264,28 @@ export class ConvertToMarkdownSettingTab extends PluginSettingTab {
           fragment.createEl("br");
           fragment.appendText("XAttachment → a folder beside the note · ../assets → up one level · ");
           fragment.appendText("/Assets/{{note}} → from the vault root.");
+          fragment.createEl("br");
+          fragment.appendText(`Left empty, it goes back to the default, ${DEFAULT_ATTACHMENT_FOLDER}.`);
         });
+        // The field always shows the folder actually in use. An empty field with
+        // the default greyed out as its placeholder reads as already set, which
+        // hides whether a value was ever chosen, so an empty saved value or a
+        // cleared field is filled with the default it stands for.
         new Setting(containerEl)
           .setName("Image folder")
           .setDesc(desc)
-          .addText((text) =>
+          .addText((text) => {
             text
               .setPlaceholder(DEFAULT_ATTACHMENT_FOLDER)
-              .setValue(this.plugin.settings.attachmentFolder)
+              .setValue(this.plugin.settings.attachmentFolder.trim() || DEFAULT_ATTACHMENT_FOLDER)
               .onChange(async (value) => {
                 this.plugin.settings.attachmentFolder = value.trim() || DEFAULT_ATTACHMENT_FOLDER;
                 await this.plugin.saveSettings();
-              })
-          );
+              });
+            text.inputEl.addEventListener("blur", () => {
+              if (text.getValue().trim() === "") text.setValue(DEFAULT_ATTACHMENT_FOLDER);
+            });
+          });
       }
     }
 
