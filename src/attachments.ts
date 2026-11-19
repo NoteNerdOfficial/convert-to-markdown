@@ -12,8 +12,10 @@ export const DEFAULT_ATTACHMENT_FOLDER = "{{note}} attachments";
  * - `../assets` — relative to the note's folder
  * - `/Assets/{{note}}` — a leading slash starts from the vault root
  *
- * `{{note}}` is the only placeholder. It's replaced before the path is split,
- * so it can sit anywhere in it.
+ * `{{note}}` is the note's name and `{{note_nospaces}}` the same name with each
+ * run of whitespace turned into one underscore, as Image Converter's
+ * `{notename_nospaces}` does, so both plugins agree on a folder name. They're
+ * replaced before the path is split, so they can sit anywhere in it.
  *
  * A path that climbs out of the vault throws rather than being clamped to the
  * root: quietly writing somewhere other than where the setting says would
@@ -21,7 +23,11 @@ export const DEFAULT_ATTACHMENT_FOLDER = "{{note}} attachments";
  * the vault root itself.
  */
 export function attachmentFolderFor(template: string, noteFolder: string, noteBasename: string): string {
-  const filled = (template.trim() || DEFAULT_ATTACHMENT_FOLDER).split("{{note}}").join(noteBasename);
+  const filled = (template.trim() || DEFAULT_ATTACHMENT_FOLDER)
+    .split("{{note_nospaces}}")
+    .join(noteBasename.replace(/\s+/g, "_"))
+    .split("{{note}}")
+    .join(noteBasename);
   const normalized = filled.replace(/\\/g, "/");
 
   const segments = normalized.startsWith("/") ? [] : noteFolder.split("/").filter((part) => part !== "");

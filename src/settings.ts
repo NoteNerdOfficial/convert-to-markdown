@@ -257,7 +257,10 @@ export class ConvertToMarkdownSettingTab extends PluginSettingTab {
 
       if (this.plugin.settings.attachmentLocation === "plugin") {
         const desc = createFragment((fragment) => {
-          fragment.appendText("Relative to the converted note. {{note}} is replaced by the note's name.");
+          fragment.appendText(
+            "Relative to the converted note. {{note}} is replaced by the note's name, " +
+              "{{note_nospaces}} by the name with underscores for spaces."
+          );
           fragment.createEl("br");
           fragment.appendText("XAttachment → a folder beside the note · ../assets → up one level · ");
           fragment.appendText("/Assets/{{note}} → from the vault root.");

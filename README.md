@@ -402,7 +402,9 @@ written once no matter how many times they're used, so a logo on forty slides
 is one file.
 
 The folder is a setting. **Image folder** is a path relative to the converted
-note, where `{{note}}` stands for the note's name: `XAttachment` is a folder
+note, where `{{note}}` stands for the note's name and `{{note_nospaces}}` for
+the name with underscores in place of spaces (`Invoice 2026 Oct` becomes
+`Invoice_2026_Oct`, as Image Converter's `{notename_nospaces}` does): `XAttachment` is a folder
 beside the note, `../assets` is one level up, and a leading slash
 (`/Assets/{{note}}`) starts from the vault root. A path that would leave the
 vault stops the conversion with an error rather than writing somewhere else.
